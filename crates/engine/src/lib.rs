@@ -62,6 +62,7 @@ pub mod preset_import_cmds;
 pub mod preset_store;
 pub mod presets;
 pub mod print_cmds;
+pub mod project_cmds;
 pub mod proof_sim;
 pub mod render_cmds;
 pub mod retouch_cmds;
@@ -96,6 +97,7 @@ use serde_json::Value;
 pub use commands::{CommandSpec, command_specs};
 pub use photocraft_doc as doc;
 pub use photocraft_paint as paint;
+pub use photocraft_project as project;
 pub use photocraft_paint::BrushSettings;
 
 #[derive(Debug, thiserror::Error)]
@@ -161,6 +163,8 @@ pub struct DocState {
     /// Layers panel: layers whose effects list is collapsed under their row (the fx triangle;
     /// view state, not history). Effects lists start open.
     pub fx_collapsed: Vec<LayerId>,
+    /// The project photo this document shows (see `project_cmds`): File › Save writes its sidecar.
+    pub project_photo: Option<u64>,
 }
 
 impl DocState {
@@ -182,6 +186,7 @@ impl DocState {
             channel_view: Default::default(),
             isolated_layers: Vec::new(),
             fx_collapsed: Vec::new(),
+            project_photo: None,
         }
     }
     /// The selected layers in bottom-to-top document order, always including the active layer.
@@ -281,6 +286,8 @@ pub struct Session {
     pub preset_store: Option<preset_store::PresetStore>,
     /// Background jobs (see [`jobs`]).
     jobs: jobs::Jobs,
+    /// The open PhotoVision project (albums, photos, colour settings; see `project_cmds`).
+    pub project: Option<project_cmds::ProjectState>,
 }
 
 impl Session {

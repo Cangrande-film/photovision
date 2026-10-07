@@ -169,6 +169,11 @@ pub fn authorize_engine_command(id: &str, params: &Value) -> Result<(), Automati
     if id.starts_with("file.") && !safe_file_command {
         return Err(command_error(id));
     }
+    // Projects read and write project files, media copies, sidecars, exports and thumbnails at
+    // paths taken from params or the project file.
+    if id.starts_with("project.") || id.starts_with("album.") || id.starts_with("photo.") {
+        return Err(command_error(id));
+    }
     if (id.starts_with("layer.smartObjects.") && id != "layer.smartObjects.convertToSmartObject")
         || matches!(
             id,
@@ -431,6 +436,14 @@ mod tests {
         assert!(authorize_engine_command("color.pipeline", &serde_json::json!({})).is_ok());
         for key in ["input", "working", "output"] {
             assert!(authorize_engine_command("color.setPipeline", &serde_json::json!({key: "icc:/outside/x.icc"})).is_err(), "{key}");
+        }
+        // Projects touch ambient paths (project file, media copies, sidecars, exports, thumbnails).
+        for id in photocraft_engine::command_specs()
+            .iter()
+            .map(|c| c.id)
+            .filter(|id| id.starts_with("project.") || id.starts_with("album.") || id.starts_with("photo."))
+        {
+            assert!(authorize_engine_command(id, &serde_json::json!({})).is_err(), "{id}");
         }
     }
 }

@@ -242,7 +242,7 @@ fn non_rgb_documents_keep_the_color_settings_policy() {
 #[test]
 fn bad_pipeline_fails_before_opening() {
     let mut s = Session::new();
-    let pl = ColorPipeline { output: SpaceId("icc:/nowhere/x.icc".into()), ..Default::default() };
+    let pl = ColorPipeline { output: SpaceId::parse("icc:/nowhere/x.icc").unwrap(), ..Default::default() };
     assert!(s.open_document_with_pipeline(doc(None, [0.5; 3], SampleType::U8), None, &pl).is_err());
     assert!(s.documents().is_empty(), "nothing half-opened");
 }

@@ -226,11 +226,13 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
             }
         }
         "file.save" => {
-            // Writes back only to a layered file; a flat one goes through Save As.
+            // Writes back only to a layered file; a flat one goes through Save As. A project
+            // photo saves to its sidecar (`<original>.pcraft`; the original is never written).
             let path = params
                 .get("path")
                 .and_then(Value::as_str)
                 .map(str::to_string)
+                .or_else(|| app.session.active_photo_sidecar())
                 .or_else(|| app.session.active().and_then(|d| d.path.clone()).filter(|p| photocraft_engine::file_cmds::saves_in_place(p)));
             app.save_as(path).map(|(p, w)| json!({"path": p, "warnings": w}))
         }

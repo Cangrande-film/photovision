@@ -33,6 +33,8 @@ photocraft-format = { workspace = true }
 photocraft-plugins = { workspace = true }
 blake3 = { version = "1.8", default-features = false, features = ["pure"] }
 photocraft-codecs = { workspace = true }
+photocraft-project = { workspace = true }
+photocraft-raw = { workspace = true }
 flate2 = { workspace = true }
 
 [dev-dependencies]
