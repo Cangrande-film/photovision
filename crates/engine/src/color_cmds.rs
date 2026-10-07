@@ -391,25 +391,39 @@ impl ColorState {
     /// itself (see [`ColorState::hdr_preview`]) so that 32-bit values above 1.0, kept by its float
     /// texture, are exposed into range rather than clipped by the LUT's 0..1 domain.
     pub fn gpu_canvas_lut(&self, doc: &Document, size: usize) -> Result<Option<Vec<u8>>> {
-        self.canvas_lut_with(doc, size, false)
+        Ok(self.canvas_lut_data(doc, size, false)?.map(|l| l.to_rgba8()))
+    }
+
+    /// [`ColorState::gpu_canvas_lut`] as little-endian RGBA16F texels (8 bytes each, for an
+    /// `Rgba16Float` 3D texture): the display colours are not clipped to 0..1 (out-of-gamut
+    /// results stay negative or above 1 until the canvas writes its output), and alpha is 1.0
+    /// where Gamut Warning flags the colour, else 0.0.
+    pub fn gpu_canvas_lut_f16(&self, doc: &Document, size: usize) -> Result<Option<Vec<u8>>> {
+        Ok(self.canvas_lut_data(doc, size, false)?.map(|l| l.to_rgba16f_bytes()))
     }
 
     fn canvas_lut_with(&self, doc: &Document, size: usize, hdr: bool) -> Result<Option<Vec<u8>>> {
+        Ok(self.canvas_lut_data(doc, size, hdr)?.map(|l| l.to_rgba8()))
+    }
+
+    /// The canvas display LUT in float: `None` for the identity, else `size`³ entries whose
+    /// alpha is the gamut warning flag (1.0 out of gamut) when Proof Colors, Gamut Warning or the
+    /// 32-bit preview is on (alpha is unused otherwise).
+    pub fn canvas_lut_data(&self, doc: &Document, size: usize, hdr: bool) -> Result<Option<Lut3d>> {
         let size = size.max(2);
         let pv = self.proof(doc.id);
         let display = self.canvas_display(doc)?;
         if !pv.enabled && !pv.gamut_warning && !(hdr && crate::proof_sim::hdr_active(self, doc)) {
-            return Ok(display.transform.as_ref().map(|t| Lut3d::from_transform(t, size).to_rgba8()));
+            return Ok(display.transform.as_ref().map(|t| Lut3d::from_transform(t, size)));
         }
-        let lut = self.display_lut_with(doc, size, hdr)?;
-        let mut bytes = lut.to_rgba8();
+        let mut lut = self.display_lut_with(doc, size, hdr)?;
         let check = if pv.gamut_warning { Some(GamutCheck::new(&display.source, &pv.setup.profile, pv.gamut_threshold).map_err(cms_err)?) } else { None };
         let s = (size - 1) as f32;
-        for (i, px) in bytes.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+        for (i, px) in lut.data.iter_mut().enumerate() {
             let rgb = [(i % size) as f32 / s, ((i / size) % size) as f32 / s, (i / (size * size)) as f32 / s];
-            px[3] = if check.as_ref().is_some_and(|c| c.out_of_gamut(&rgb)) { 255 } else { 0 };
+            px[3] = if check.as_ref().is_some_and(|c| c.out_of_gamut(&rgb)) { 1.0 } else { 0.0 };
         }
-        Ok(Some(bytes))
+        Ok(Some(lut))
     }
 }
 

@@ -93,6 +93,8 @@ pub struct GpuCanvas {
     rs: RenderState,
     tile: u32,
     high: HighPolicy,
+    /// Display LUT texture format: `Rgba16Float` when [`supports_f16_lut`], else `Rgba8Unorm`.
+    lut_format: wgpu::TextureFormat,
     health: photocraft_gpu::DeviceHealth,
 }
 
@@ -103,6 +105,19 @@ pub fn supports_f16_canvas(adapter: &wgpu::Adapter) -> bool {
     let usages = wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::COPY_SRC;
     f.allowed_usages.contains(usages) && f.flags.contains(wgpu::TextureFormatFeatureFlags::FILTERABLE)
 }
+
+/// Can `adapter` sample a filtered `Rgba16Float` 3D texture uploaded from the CPU (the float
+/// display LUT)? Otherwise the canvas falls back to an RGBA8 LUT.
+pub fn supports_f16_lut(adapter: &wgpu::Adapter) -> bool {
+    let f = adapter.get_texture_format_features(FORMAT_HIGH);
+    let usages = wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST;
+    f.allowed_usages.contains(usages) && f.flags.contains(wgpu::TextureFormatFeatureFlags::FILTERABLE)
+}
+
+/// Lattice size of the float (`Rgba16Float`) display LUT.
+pub const DISPLAY_LUT_F16: u32 = 65;
+/// Lattice size of the RGBA8 fallback display LUT.
+pub const DISPLAY_LUT_U8: u32 = 33;
 
 impl GpuCanvas {
     /// Create pipelines and register resources with the egui renderer.
@@ -123,11 +138,24 @@ impl GpuCanvas {
         };
         // Device loss and uncaptured errors mark this flag instead of panicking (#243).
         let health = photocraft_gpu::DeviceHealth::watch(&rs.device);
-        let mut res = Resources::new(&rs.device, &rs.queue, rs.target_format, high != HighPolicy::Off);
+        let lut_format = if supports_f16_lut(&rs.adapter) { FORMAT_HIGH } else { FORMAT };
+        let mut res = Resources::new(&rs.device, &rs.queue, rs.target_format, high != HighPolicy::Off, lut_format);
         res.health = health.clone();
         rs.renderer.write().callback_resources.insert(res);
         log::info!("gpu canvas: target {:?}, max texture {max}, tile {tile}, 16F canvas {high:?}", rs.target_format);
-        Self { rs: rs.clone(), tile, high, health }
+        Self { rs: rs.clone(), tile, high, lut_format, health }
+    }
+
+    /// Whether [`GpuCanvas::set_display_lut`] takes RGBA16F texels (`true`, 8 bytes each, from
+    /// `ColorState::gpu_canvas_lut_f16`) or RGBA8 (`false`, 4 bytes, `ColorState::gpu_canvas_lut`).
+    pub fn display_lut_float(&self) -> bool {
+        self.lut_format == FORMAT_HIGH
+    }
+
+    /// The display LUT lattice size this canvas uses: [`DISPLAY_LUT_F16`] with a float LUT,
+    /// else [`DISPLAY_LUT_U8`].
+    pub fn display_lut_size(&self) -> u32 {
+        if self.display_lut_float() { DISPLAY_LUT_F16 } else { DISPLAY_LUT_U8 }
     }
 
     /// The device's health flag (shared with the wgpu compositor and the paint callback).
@@ -597,9 +625,10 @@ impl GpuCanvas {
         }
     }
 
-    /// Set (or clear with `None`) the display LUT of document `doc`: `size`³ RGBA8 texels, red
-    /// fastest. RGB is the display colour for each lattice input; alpha 255 marks out-of-gamut
-    /// colours for the gamut warning.
+    /// Set (or clear with `None`) the display LUT of document `doc`: `size`³ texels, red
+    /// fastest, RGBA16F when [`GpuCanvas::display_lut_float`] else RGBA8. RGB is the display
+    /// colour for each lattice input; alpha 1.0 (255) marks out-of-gamut colours for the gamut
+    /// warning.
     pub fn set_display_lut(&self, doc: u64, size: u32, rgba: Option<&[u8]>) {
         if !self.health.is_ok() {
             return;
@@ -613,11 +642,12 @@ impl GpuCanvas {
                 res.luts.remove(&doc);
             }
             Some(bytes) => {
-                if size < 2 || bytes.len() as u64 != (size as u64).pow(3) * 4 {
-                    log::warn!("set_display_lut: {} bytes for a {size}³ LUT; ignored", bytes.len());
+                let texel = texel_bytes(res.lut_format);
+                if size < 2 || bytes.len() as u64 != (size as u64).pow(3) * texel {
+                    log::warn!("set_display_lut: {} bytes for a {size}³ {:?} LUT; ignored", bytes.len(), res.lut_format);
                     return;
                 }
-                let bg = lut_bind_group(device, queue, &res.lut_bgl, size, bytes);
+                let bg = lut_bind_group(device, queue, &res.lut_bgl, res.lut_format, size, bytes);
                 res.luts.insert(doc, bg);
             }
         }
@@ -1105,6 +1135,8 @@ struct Resources {
     encode_bgl: wgpu::BindGroupLayout,
     encode_pipeline: wgpu::RenderPipeline,
     lut_bgl: wgpu::BindGroupLayout,
+    /// `Rgba16Float` (65³ float display LUTs) or `Rgba8Unorm` (33³ fallback).
+    lut_format: wgpu::TextureFormat,
     /// Display LUTs per document (Proof Colors / Gamut Warning); `identity_lut` otherwise.
     luts: HashMap<u64, wgpu::BindGroup>,
     /// Signatures belong to their renderer resources, including identity transforms (mode 0).
@@ -1132,8 +1164,8 @@ impl Default for CanvasStyle {
     }
 }
 
-/// A `size`³ RGBA8 3D texture bound for the canvas shader.
-fn lut_bind_group(device: &wgpu::Device, queue: &wgpu::Queue, bgl: &wgpu::BindGroupLayout, size: u32, bytes: &[u8]) -> wgpu::BindGroup {
+/// A `size`³ 3D texture of `format` (RGBA8 or RGBA16F) bound for the canvas shader.
+fn lut_bind_group(device: &wgpu::Device, queue: &wgpu::Queue, bgl: &wgpu::BindGroupLayout, format: wgpu::TextureFormat, size: u32, bytes: &[u8]) -> wgpu::BindGroup {
     let extent = wgpu::Extent3d { width: size, height: size, depth_or_array_layers: size };
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("pc_display_lut"),
@@ -1141,14 +1173,14 @@ fn lut_bind_group(device: &wgpu::Device, queue: &wgpu::Queue, bgl: &wgpu::BindGr
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D3,
-        format: FORMAT,
+        format,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
     queue.write_texture(
         wgpu::TexelCopyTextureInfo { texture: &texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
         bytes,
-        wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(size * 4), rows_per_image: Some(size) },
+        wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(size * texel_bytes(format) as u32), rows_per_image: Some(size) },
         extent,
     );
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -1159,9 +1191,19 @@ fn lut_bind_group(device: &wgpu::Device, queue: &wgpu::Queue, bgl: &wgpu::BindGr
     })
 }
 
-/// The 2³ identity LUT (unused unless a document has none and `display` is set).
-fn identity_lut_bytes() -> Vec<u8> {
-    (0..8).flat_map(|i| [if i & 1 != 0 { 255 } else { 0 }, if i & 2 != 0 { 255 } else { 0 }, if i & 4 != 0 { 255 } else { 0 }, 0]).collect()
+/// The 2³ identity LUT in `format` (unused unless a document has none and `display` is set):
+/// RGBA8, or RGBA16F (1.0 = `0x3C00`), alpha 0 (in gamut).
+fn identity_lut_bytes(format: wgpu::TextureFormat) -> Vec<u8> {
+    let float = format == FORMAT_HIGH;
+    let one = |on: bool| -> Vec<u8> {
+        match (float, on) {
+            (true, true) => 0x3C00u16.to_le_bytes().to_vec(),
+            (true, false) => vec![0, 0],
+            (false, true) => vec![255],
+            (false, false) => vec![0],
+        }
+    };
+    (0..8).flat_map(|i| [one(i & 1 != 0), one(i & 2 != 0), one(i & 4 != 0), one(false)].concat()).collect()
 }
 
 struct ViewGpu {
@@ -1246,7 +1288,7 @@ fn pipeline(
 }
 
 impl Resources {
-    fn new(device: &wgpu::Device, queue: &wgpu::Queue, target: wgpu::TextureFormat, high: bool) -> Self {
+    fn new(device: &wgpu::Device, queue: &wgpu::Queue, target: wgpu::TextureFormat, high: bool, lut_format: wgpu::TextureFormat) -> Self {
         let module =
             device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("pc_canvas"), source: wgpu::ShaderSource::Wgsl(CANVAS_WGSL.into()) });
         let vis = wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT;
@@ -1339,9 +1381,10 @@ impl Resources {
         });
         let encode_pipeline = pipeline(device, "pc_encode", &encode_layout, &encode_module, ("vs", "fs"), FORMAT, None);
         let encode_pipeline_high = high.then(|| pipeline(device, "pc_encode_16f", &encode_layout, &encode_module, ("vs", "fs"), FORMAT_HIGH, None));
-        let identity_lut = lut_bind_group(device, queue, &lut_bgl, 2, &identity_lut_bytes());
+        let identity_lut = lut_bind_group(device, queue, &lut_bgl, lut_format, 2, &identity_lut_bytes(lut_format));
         Self {
             lut_bgl,
+            lut_format,
             luts: HashMap::new(),
             display_lut_signatures: HashMap::new(),
             identity_lut,
@@ -1799,6 +1842,8 @@ fn fs_tile(in: VOut) -> @location(0) vec4<f32> {
         // out-of-gamut colours).
         let n = f32(textureDimensions(lut).x);
         let c = clamp(col.rgb / col.a, vec3(0.0), vec3(1.0));
+        // A float LUT keeps out-of-gamut display values (< 0, > 1); they are clipped only when
+        // the fragment is written, below.
         let l = textureSampleLevel(lut, samp, (c * (n - 1.0) + 0.5) / n, 0.0);
         let shown = select(l.rgb, mix(l.rgb, view.g.xyz, view.e.w), view.d.z > 1.5 && l.a > 0.5);
         col = vec4(shown * col.a, col.a);
@@ -1812,6 +1857,8 @@ fn fs_tile(in: VOut) -> @location(0) vec4<f32> {
             rgb = mix(rgb, select(vec3(1.0), vec3(0.0), l > 0.55), grid);
         }
     }
+    // The display has no HDR output: clip once, at the very end.
+    rgb = clamp(rgb, vec3(0.0), vec3(1.0));
     if (view.d.w > 0.5) {
         rgb = srgb_to_linear(rgb);
     }
@@ -1921,6 +1968,21 @@ mod tests {
         assert_eq!(f32_to_f16(f32::NAN), 0);
         assert_eq!(f32_to_f16(-2.0), 0xc000);
         assert_eq!(premultiply_rgba16f(&[[2.0, -1.0, f32::NAN, 0.5]]), [0x00, 0x3c, 0, 0, 0, 0, 0x00, 0x38]);
+    }
+
+    #[test]
+    fn identity_lut_in_both_formats() {
+        let u8s = identity_lut_bytes(FORMAT);
+        assert_eq!(u8s.len(), 8 * 4);
+        assert_eq!(&u8s[7 * 4..], &[255, 255, 255, 0], "white, in gamut");
+        assert_eq!(&u8s[4..8], &[255, 0, 0, 0], "red fastest");
+        let f16 = identity_lut_bytes(FORMAT_HIGH);
+        assert_eq!(f16.len() as u64, 8 * texel_bytes(FORMAT_HIGH));
+        let half = |i: usize| u16::from_le_bytes([f16[i * 2], f16[i * 2 + 1]]);
+        assert_eq!([half(7 * 4), half(7 * 4 + 1), half(7 * 4 + 2), half(7 * 4 + 3)], [0x3C00, 0x3C00, 0x3C00, 0]);
+        assert_eq!([half(4), half(5), half(6), half(7)], [0x3C00, 0, 0, 0]);
+        assert_eq!(DISPLAY_LUT_F16, 65);
+        assert_eq!(DISPLAY_LUT_U8, 33);
     }
 
     #[cfg(not(target_arch = "wasm32"))]

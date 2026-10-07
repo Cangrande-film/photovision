@@ -170,7 +170,7 @@ fn color_lookup_builtin_data_and_errors() {
     // Switching interpolation keeps the table.
     s.execute("layer.setAdjustment", json!({"layer": id.0, "interpolation": "tetrahedral", "dither": true})).unwrap();
     match &doc(&s).layer(id).unwrap().content {
-        LayerContent::Adjustment(Adjustment::ColorLookup { lut: Some(_), size: 33, tetrahedral: true, dither: true, name }) => {
+        LayerContent::Adjustment(Adjustment::ColorLookup { lut: Some(_), size: 33, tetrahedral: true, dither: true, name, .. }) => {
             assert_eq!(name, "Day for Night")
         }
         other => panic!("{other:?}"),

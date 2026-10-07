@@ -1106,7 +1106,9 @@ fn composite_layer_plain(layer: &Layer, clipped: &[Layer], backdrop: &mut Buffer
                 }
                 pm[3] += w[3] - wo[3];
                 let a = pm[3].clamp(0.0, 1.0);
-                *p = if a > 0.0 { [(pm[0] / a).clamp(0.0, 1.0), (pm[1] / a).clamp(0.0, 1.0), (pm[2] / a).clamp(0.0, 1.0), a] } else { [0.0; 4] };
+                // 32-bit float keeps colour values above 1 (only coverage is clipped).
+                let clip = |v: f32| if cx.depth == photocraft_color::SampleType::F32 { v } else { v.clamp(0.0, 1.0) };
+                *p = if a > 0.0 { [clip(pm[0] / a), clip(pm[1] / a), clip(pm[2] / a), a] } else { [0.0; 4] };
             }
         }
         return;
@@ -1115,7 +1117,7 @@ fn composite_layer_plain(layer: &Layer, clipped: &[Layer], backdrop: &mut Buffer
     // Adjustment layers transform the backdrop, then blend the result back in.
     if let LayerContent::Adjustment(adj) = &layer.content {
         let mut adjusted = backdrop.clone();
-        adjust::apply_depth(adj, &mut adjusted, cx.transfer, adjustment_quantum(cx.depth));
+        adjust::apply_doc(adj, &mut adjusted, cx.transfer, cx.depth);
         // Clipped layers onto an adjustment are uncommon; they composite atop the adjusted result.
         for c in clipped.iter().filter(|c| c.visible) {
             composite_atop(c, &mut adjusted, cx);
@@ -1411,7 +1413,7 @@ fn composite_atop_any(layer: &Layer, base: &mut Buffer, cx: &Ctx) {
     let rect = base.rect;
     if let LayerContent::Adjustment(adj) = &layer.content {
         let mut adjusted = base.clone();
-        adjust::apply_depth(adj, &mut adjusted, cx.transfer, adjustment_quantum(cx.depth));
+        adjust::apply_doc(adj, &mut adjusted, cx.transfer, cx.depth);
         let mv = mask_vals(layer, rect, cx);
         for (i, p) in base.px.iter_mut().enumerate() {
             let k = layer.opacity * layer.fill_opacity * mask_k(&mv, i);
@@ -1499,3 +1501,5 @@ fn blend_into_g(backdrop: &mut Buffer, src: &Buffer, mode: BlendMode, opacity: f
 mod stroke_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod float_tests;

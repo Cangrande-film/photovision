@@ -79,9 +79,9 @@ fn adjustments() -> Vec<(Adjustment, bool)> {
         (Adjustment::PhotoFilter { color: [q16(0), q16(39321), q16(65535)], density: 0.3, preserve_luminosity: false }, true),
         (Adjustment::ChannelMixer { matrix: [[0.5, 0.3, 0.2, 0.0], [0.1, 0.8, 0.1, 0.05], [0.0, 0.2, 0.9, -0.05]], monochrome: false }, true),
         (Adjustment::ChannelMixer { matrix: [[0.4, 0.4, 0.2, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0]], monochrome: true }, true),
-        (Adjustment::ColorLookup { name: "Look.cube".into(), lut: Some(Arc::new(lut.data)), size: 5, tetrahedral: false, dither: false }, true),
+        (Adjustment::ColorLookup { name: "Look.cube".into(), lut: Some(Arc::new(lut.data)), size: 5, tetrahedral: false, dither: false, domain: None }, true),
         // No table chosen: written as an identity cube (renders the same, comes back with a table).
-        (Adjustment::ColorLookup { name: String::new(), lut: None, size: 0, tetrahedral: false, dither: false }, false),
+        (Adjustment::ColorLookup { name: String::new(), lut: None, size: 0, tetrahedral: false, dither: false, domain: None }, false),
         (Adjustment::Invert, true),
         (Adjustment::Posterize { levels: 4 }, true),
         (Adjustment::Threshold { level: g(140) }, true),

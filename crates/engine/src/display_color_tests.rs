@@ -249,3 +249,43 @@ fn proof_colors_still_apply_on_top() {
     s.execute("view.gamutWarning", json!({"on": true})).unwrap();
     assert_ne!(sig, s.color.display_signature(&d));
 }
+
+/// binary16 bits → f32 (test-local, to read the float display LUT).
+fn half(h: u16) -> f32 {
+    let sign = if h & 0x8000 != 0 { -1.0 } else { 1.0 };
+    let e = i32::from((h >> 10) & 0x1F);
+    let m = f32::from(h & 0x3FF);
+    match e {
+        0 => sign * m * 2f32.powi(-24),
+        0x1F => f32::INFINITY * sign,
+        _ => sign * (1.0 + m / 1024.0) * 2f32.powi(e - 15),
+    }
+}
+
+/// The float (RGBA16F) display LUT holds the same colours as the float LUT data, unclipped (a
+/// wide-gamut document has colours outside the monitor's 0..1), while the RGBA8 fallback is the
+/// same data clipped, byte for byte what it was.
+#[test]
+fn float_display_lut_is_unclipped() {
+    let s = Session::new();
+    let d = rgb_doc(Some(Builtin::ProPhotoCompat.profile()), [0.2, 0.6, 0.4], SampleType::F32);
+    let n = 65;
+    let data = s.color.canvas_lut_data(&d, n, false).expect("lut").expect("not the identity");
+    let bytes = s.color.gpu_canvas_lut_f16(&d, n).expect("lut").expect("not the identity");
+    assert_eq!(bytes.len(), n * n * n * 8);
+    let texels: Vec<f32> = bytes.as_chunks::<2>().0.iter().map(|b| half(u16::from_le_bytes(*b))).collect();
+    for (i, px) in data.data.iter().enumerate() {
+        for k in 0..3 {
+            let (want, got) = (px[k], texels[i * 4 + k]);
+            assert!((want - got).abs() <= want.abs() * 1e-3 + 1e-4, "texel {i}.{k}: {got} vs {want}");
+        }
+    }
+    assert!(texels.iter().any(|v| *v < -1e-3 || *v > 1.0 + 1e-3), "ProPhoto primaries fall outside sRGB");
+    let rgba8 = s.color.gpu_canvas_lut(&d, n).expect("lut").expect("not the identity");
+    assert_eq!(rgba8, data.to_rgba8());
+    // The CPU canvas LUT (RGBA8) is unchanged by the float path.
+    assert_eq!(s.color.canvas_lut(&d, 9).expect("lut"), s.color.canvas_lut_data(&d, 9, true).expect("lut").map(|l| l.to_rgba8()));
+    // An sRGB document on an sRGB monitor needs no LUT in either format.
+    let plain = rgb_doc(Some(Builtin::Srgb.profile()), [0.2, 0.6, 0.4], SampleType::U8);
+    assert!(s.color.gpu_canvas_lut_f16(&plain, n).expect("lut").is_none());
+}

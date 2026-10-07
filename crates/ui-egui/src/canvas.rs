@@ -1243,13 +1243,12 @@ fn home_recent(app: &mut PhotocraftApp, ui: &mut egui::Ui, recent: &[String]) {
     }
 }
 
-/// Lattice size of the canvas display LUT (colour management, Proof Colors, Gamut Warning).
-const DISPLAY_LUT: usize = 33;
-
 /// Keep the GPU display LUT under `key` (the document's texture or a preview of it) in step with
 /// `doc`'s colour management: document → monitor profile and View › Proof Colors / Gamut
-/// Warning (the 32-bit preview is applied by the canvas shader, see [`hdr_preview`]). Returns the canvas `display` mode (0 none — the identity, e.g. sRGB on
-/// an sRGB monitor —, 1 LUT, 2 LUT + gamut warning).
+/// Warning (the 32-bit preview is applied by the canvas shader, see [`hdr_preview`]). The LUT is
+/// 65³ RGBA16F where the adapter can filter it (display values are clipped only by the shader's
+/// final write), else 33³ RGBA8. Returns the canvas `display` mode (0 none — the identity, e.g.
+/// sRGB on an sRGB monitor —, 1 LUT, 2 LUT + gamut warning).
 fn sync_display_lut(app: &mut PhotocraftApp, doc: &photocraft_doc::Document, key: u64) -> u8 {
     let Some(gpu) = app.gpu.clone() else { return 0 };
     // Rebuild only when anything feeding the LUT changes.
@@ -1260,18 +1259,24 @@ fn sync_display_lut(app: &mut PhotocraftApp, doc: &photocraft_doc::Document, key
         return mode;
     }
     let gamut = app.session.color.proof(doc.id).gamut_warning;
-    let mode = match app.session.color.gpu_canvas_lut(doc, DISPLAY_LUT) {
+    let size = gpu.display_lut_size();
+    let lut = if gpu.display_lut_float() {
+        app.session.color.gpu_canvas_lut_f16(doc, size as usize)
+    } else {
+        app.session.color.gpu_canvas_lut(doc, size as usize)
+    };
+    let mode = match lut {
         Ok(Some(bytes)) => {
-            gpu.set_display_lut(key, DISPLAY_LUT as u32, Some(&bytes));
+            gpu.set_display_lut(key, size, Some(&bytes));
             if gamut { 2 } else { 1 }
         }
         Ok(None) => {
-            gpu.set_display_lut(key, DISPLAY_LUT as u32, None);
+            gpu.set_display_lut(key, size, None);
             0
         }
         Err(e) => {
             app.ui.status = format!("Color management: {e}");
-            gpu.set_display_lut(key, DISPLAY_LUT as u32, None);
+            gpu.set_display_lut(key, size, None);
             0
         }
     };

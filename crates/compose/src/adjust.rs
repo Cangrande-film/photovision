@@ -56,6 +56,19 @@ impl Transfer {
             Transfer::Gamma(g) => v.max(0.0).powf(1.0 / g),
         }
     }
+    /// [`Transfer::decode`] mirrored through zero, so negative values survive (unclipped float).
+    fn decode_signed(self, v: f32) -> f32 {
+        v.signum() * self.decode(v.abs())
+    }
+    /// [`Transfer::encode`] mirrored through zero.
+    fn encode_signed(self, v: f32) -> f32 {
+        v.signum() * self.encode(v.abs())
+    }
+}
+
+/// `x^e` mirrored through zero (`sign(x)·|x|^e`): a power curve that keeps negative values.
+pub fn signed_pow(x: f32, e: f32) -> f32 {
+    x.signum() * x.abs().powf(e)
 }
 
 /// Applies an adjustment assuming an sRGB document.
@@ -72,6 +85,32 @@ pub fn apply_with(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer) {
 /// per unit (the document's integer depth, see `adjustment_quantum`): Levels then works on
 /// whole levels like Photoshop's (see [`levels_q`]).
 pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, quantum: Option<f32>) {
+    apply_opts(adj, buf, transfer, quantum, false);
+}
+
+/// Applies an adjustment as a document of `depth` does: integer depths on whole levels and
+/// clipped to 0..1 ([`apply_depth`]), 32-bit float **unclipped** (see [`apply_opts`]).
+pub fn apply_doc(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, depth: photocraft_color::SampleType) {
+    apply_opts(adj, buf, transfer, crate::adjustment_quantum(depth), depth == photocraft_color::SampleType::F32);
+}
+
+/// [`apply_depth`], optionally `unclipped`: 32-bit float documents hold scene-linear values
+/// above 1 (and slightly below 0), and these adjustments keep them instead of clipping to 0..1
+/// (like Photoshop's 32-bit mode):
+///
+/// - **Exposure**: no clamp; the offset may go negative and the gamma is mirrored through zero.
+/// - **Levels / Curves** (RGB): the 0..1 tables are built without clipping (Levels' input
+///   range stretches past its white and black points), and inputs outside 0..1 continue the
+///   table linearly with its end slope (the end tangent). A curve that is flat beyond its last
+///   point (a white point below 1) therefore still clips there, as in Photoshop.
+/// - **Brightness/Contrast**: legacy is linear and simply not clamped; the modern curves are
+///   defined on 0..1, so the part of a value beyond 0..1 passes through unchanged (slope 1).
+/// - **Color Lookup**: the table is sampled at the input clamped to its domain; the part of
+///   the input beyond the domain is added back unchanged, so highlights keep their detail.
+/// - **Color Balance**: no clamp.
+///
+/// Other adjustments still clip (their maths assume 0..1). Integer depths always clip.
+pub fn apply_opts(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, quantum: Option<f32>, unclipped: bool) {
     match adj {
         Adjustment::Invert => map_rgb(buf, |c| [1.0 - c[0], 1.0 - c[1], 1.0 - c[2]]),
         Adjustment::Threshold { level } => {
@@ -89,7 +128,11 @@ pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, quant
             let b = brightness / 255.0;
             let c = contrast.clamp(-100.0, 99.0);
             let k = if c >= 0.0 { 1.0 / (1.0 - c / 100.0) } else { 1.0 + c / 100.0 };
-            map_rgb(buf, |px| px.map(|v| ((v - 0.5) * k + 0.5 + b).clamp(0.0, 1.0)))
+            if unclipped {
+                map_rgb(buf, |px| px.map(|v| (v - 0.5) * k + 0.5 + b))
+            } else {
+                map_rgb(buf, |px| px.map(|v| ((v - 0.5) * k + 0.5 + b).clamp(0.0, 1.0)))
+            }
         }
         Adjustment::BrightnessContrast { brightness, contrast, .. } => {
             // Modern (CS3+) Brightness/Contrast, reverse-engineered from Photoshop ground truth
@@ -103,7 +146,11 @@ pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, quant
             // on the brightness side (the real curve is a spline); contrast matches closely.
             let b = *brightness;
             let c = *contrast;
-            map_rgb(buf, |px| px.map(|v| modern_contrast(modern_brightness(v, b), c).clamp(0.0, 1.0)))
+            if unclipped {
+                map_rgb(buf, |px| px.map(|v| pass_excess(v, |x| modern_contrast(modern_brightness(x, b), c).clamp(0.0, 1.0))))
+            } else {
+                map_rgb(buf, |px| px.map(|v| modern_contrast(modern_brightness(v, b), c).clamp(0.0, 1.0)))
+            }
         }
         Adjustment::Exposure { exposure, offset, gamma } => {
             // In linear light: (lin·2^exposure + offset)^(1/gamma), then back
@@ -111,6 +158,10 @@ pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, quant
             let m = 2f32.powf(*exposure);
             let g = gamma.max(0.01);
             let transfer = transfer.for_exposure();
+            if unclipped {
+                map_rgb(buf, |c| c.map(|v| transfer.encode_signed(signed_pow(transfer.decode_signed(v) * m + offset, 1.0 / g))));
+                return;
+            }
             map_rgb(buf, |c| {
                 c.map(|v| {
                     let lin = (transfer.decode(v) * m + offset).max(0.0).powf(1.0 / g);
@@ -119,8 +170,10 @@ pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, quant
             })
         }
         Adjustment::Levels { space, .. } | Adjustment::Curves { space, .. } => {
-            let luts = tone_luts_q(adj, quantum);
+            let unclipped = unclipped && *space == ToneSpace::Rgb;
+            let luts = tone_luts_opts(adj, quantum, unclipped);
             match space {
+                ToneSpace::Rgb if unclipped => map_rgb(buf, |c| std::array::from_fn(|i| lut_extend(&luts[i], c[i]))),
                 ToneSpace::Rgb => map_rgb(buf, |c| std::array::from_fn(|i| lut(&luts[i], c[i]))),
                 ToneSpace::Cmyk | ToneSpace::Lab => map_rgb(buf, |c| tone_in_space(*space, &luts, c)),
             }
@@ -192,25 +245,32 @@ pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, quant
             let ws = (1.0 - l * 2.0).clamp(0.0, 1.0);
             let wh = (l * 2.0 - 1.0).clamp(0.0, 1.0);
             let wm = 1.0 - ws - wh;
-            let out: [f32; 3] = std::array::from_fn(|i| (c[i] + (shadows[i] * ws + midtones[i] * wm + highlights[i] * wh) / 100.0 * 0.5).clamp(0.0, 1.0));
+            let clip = |v: f32| if unclipped { v } else { v.clamp(0.0, 1.0) };
+            let out: [f32; 3] = std::array::from_fn(|i| clip(c[i] + (shadows[i] * ws + midtones[i] * wm + highlights[i] * wh) / 100.0 * 0.5));
             if *preserve_luminosity {
                 let l1 = rgb_to_gray(out).max(1e-6);
-                out.map(|v| (v * l / l1).clamp(0.0, 1.0))
+                out.map(|v| clip(v * l / l1))
             } else {
                 out
             }
         }),
         Adjustment::SelectiveColor { relative, adjustments } => map_rgb(buf, |c| selective_color(c, *relative, adjustments)),
-        Adjustment::ColorLookup { lut: Some(table), size, tetrahedral, dither, .. } if *size >= 2 && table.len() >= (*size as usize).pow(3) * 3 => {
+        Adjustment::ColorLookup { lut: Some(table), size, tetrahedral, dither, domain, .. } if *size >= 2 && table.len() >= (*size as usize).pow(3) * 3 => {
             let (n, w, x0, y0) = (*size as usize, buf.rect.width().max(1) as usize, buf.rect.x0, buf.rect.y0);
+            let dom = domain.unwrap_or([[0.0; 3], [1.0; 3]]);
             for (i, p) in buf.px.iter_mut().enumerate() {
                 if p[3] <= 0.0 {
                     continue;
                 }
-                let mut o = lut3d_sample(table, n, [p[0], p[1], p[2]], *tetrahedral);
+                let g = lookup_coord(&dom, [p[0], p[1], p[2]]);
+                let mut o = lut3d_sample(table, n, g, *tetrahedral);
+                if unclipped {
+                    // Beyond the table's domain the excess passes through (see `apply_opts`).
+                    o = std::array::from_fn(|k| o[k] + (g[k] - g[k].clamp(0.0, 1.0)) * lookup_span(&dom, k));
+                }
                 if *dither {
                     let d = bayer4(x0 + (i % w) as i32, y0 + (i / w) as i32) / 255.0;
-                    o = o.map(|v| (v + d).clamp(0.0, 1.0));
+                    o = o.map(|v| if unclipped { v + d } else { (v + d).clamp(0.0, 1.0) });
                 }
                 p[..3].copy_from_slice(&o);
             }
@@ -231,12 +291,19 @@ pub fn tone_luts(adj: &Adjustment) -> [Vec<f32>; 4] {
 /// [`tone_luts`] for samples with `quantum` steps per unit (Levels works on whole levels; see
 /// [`levels_q`]).
 pub fn tone_luts_q(adj: &Adjustment, quantum: Option<f32>) -> [Vec<f32>; 4] {
+    tone_luts_opts(adj, quantum, false)
+}
+
+/// [`tone_luts_q`], with Levels `unclipped` (32-bit float: [`levels_unclipped`]); look the rows
+/// up with [`lut_extend`] then.
+pub fn tone_luts_opts(adj: &Adjustment, quantum: Option<f32>, unclipped: bool) -> [Vec<f32>; 4] {
     let x = |k: usize| k as f32 / (LUT_SIZE - 1) as f32;
     match adj {
         Adjustment::Levels { master, per_channel, space, black } => {
             let ident = LevelsChannel::default();
             let m = if *space == ToneSpace::Lab { &ident } else { master };
-            let row = |c: &LevelsChannel| (0..LUT_SIZE).map(|k| levels_q(c, levels_q(m, x(k), quantum), quantum)).collect();
+            let lv = |c: &LevelsChannel, v: f32| if unclipped { levels_unclipped(c, v) } else { levels_q(c, v, quantum) };
+            let row = |c: &LevelsChannel| (0..LUT_SIZE).map(|k| lv(c, lv(m, x(k)))).collect();
             [row(&per_channel[0]), row(&per_channel[1]), row(&per_channel[2]), row(if *space == ToneSpace::Cmyk { black } else { &ident })]
         }
         Adjustment::Curves { master, per_channel, space, black } => {
@@ -438,6 +505,36 @@ fn map_rgb(buf: &mut Buffer, f: impl Fn([f32; 3]) -> [f32; 3]) {
     }
 }
 
+/// `f` on `v` clamped to 0..1, plus the part of `v` beyond 0..1 unchanged (slope 1 outside).
+fn pass_excess(v: f32, f: impl Fn(f32) -> f32) -> f32 {
+    let x = v.clamp(0.0, 1.0);
+    f(x) + (v - x)
+}
+
+/// Normalised Color Lookup grid coordinate of `c` in `domain` (`[min, max]` per channel; a
+/// degenerate channel maps to 0, as `photocraft_cms::lutfile::domain_coord`).
+pub fn lookup_coord(domain: &[[f32; 3]; 2], c: [f32; 3]) -> [f32; 3] {
+    std::array::from_fn(|k| {
+        let span = domain[1][k] - domain[0][k];
+        if span > 0.0 { (c[k] - domain[0][k]) / span } else { 0.0 }
+    })
+}
+
+fn lookup_span(domain: &[[f32; 3]; 2], k: usize) -> f32 {
+    (domain[1][k] - domain[0][k]).max(0.0)
+}
+
+/// A tone table looked up without clipping: inside 0..1 as [`lut`], outside continued
+/// linearly with the table's end slope (the GPU's `lut_ext` mirrors this).
+pub fn lut_extend(table: &[f32], v: f32) -> f32 {
+    let n = table.len();
+    if n < 2 || (0.0..=1.0).contains(&v) || v.is_nan() {
+        return lut(table, v);
+    }
+    let m = (n - 1) as f32;
+    if v < 0.0 { table[0] + v * (table[1] - table[0]) * m } else { table[n - 1] + (v - 1.0) * (table[n - 1] - table[n - 2]) * m }
+}
+
 #[inline]
 fn lut(table: &[f32], v: f32) -> f32 {
     let x = v.clamp(0.0, 1.0) * (table.len() - 1) as f32;
@@ -503,8 +600,41 @@ pub fn levels_q(ch: &LevelsChannel, v: f32, quantum: Option<f32>) -> f32 {
         }
         None => ((v - ch.in_black) / range).clamp(0.0, 1.0),
     };
+    let t = levels_gamma(u, ch.gamma.max(0.01));
+    ch.out_black + t * (ch.out_white - ch.out_black)
+}
+
+/// Levels for 32-bit float (unclipped): the input range stretches past the white and black
+/// points instead of clipping, then the midtone curve continues linearly with its end tangents
+/// (slope `1/gamma` above white; below black the toe's slope, see [`levels_gamma`]), and the
+/// output range maps linearly. Identical to [`levels`] for inputs inside the input range.
+pub fn levels_unclipped(ch: &LevelsChannel, v: f32) -> f32 {
+    let range = (ch.in_white - ch.in_black).max(1e-6);
+    let u = (v - ch.in_black) / range;
     let g = ch.gamma.max(0.01);
-    let t = if g > 1.0 {
+    let t = if u > 1.0 {
+        levels_gamma(1.0, g) + (u - 1.0) / g
+    } else if u < 0.0 {
+        let slope = if g > 1.0 + 1e-6 {
+            LEVELS_TOE * 2.0f32.powf(g)
+        } else if g < 1.0 - 1e-6 {
+            0.0
+        } else {
+            1.0
+        };
+        u * slope
+    } else {
+        levels_gamma(u, g)
+    };
+    ch.out_black + t * (ch.out_white - ch.out_black)
+}
+
+/// Slope factor of Levels' shadow toe for a midtone gamma above 1 (initial slope ≈ 0.93·2^gamma).
+const LEVELS_TOE: f32 = 0.93;
+
+/// Levels' midtone curve on `u` in 0..1 (see [`levels_q`]).
+fn levels_gamma(u: f32, g: f32) -> f32 {
+    if g > 1.0 {
         // A midtone gamma > 1 lifts shadows, and a pure `u^(1/g)` has infinite slope at black —
         // which Photoshop bounds, giving a soft shadow toe (initial slope ≈ 2^gamma, verified against
         // the real app). Soft-min (p-norm) of the power curve with that line; reduces to the exact
@@ -512,7 +642,7 @@ pub fn levels_q(ch: &LevelsChannel, v: f32, quantum: Option<f32>) -> f32 {
         // sharpness fitted on whole-level input (`levels_q`): a 0..255 ramp at gamma 2.0 and
         // psd-tools levels_grayscale's gamma 1.78 (within one level of Photoshop on both).
         let power = u.powf(1.0 / g);
-        let line = 0.93 * 2.0f32.powf(g) * u;
+        let line = LEVELS_TOE * 2.0f32.powf(g) * u;
         if power <= 1e-6 || line <= 1e-6 {
             power.min(line)
         } else {
@@ -521,8 +651,7 @@ pub fn levels_q(ch: &LevelsChannel, v: f32, quantum: Option<f32>) -> f32 {
         }
     } else {
         u.powf(1.0 / g)
-    };
-    ch.out_black + t * (ch.out_white - ch.out_black)
+    }
 }
 
 /// Photoshop curve: a natural cubic spline through the points (it may

@@ -16,6 +16,15 @@ fn check_export_oracle(d: &photocraft_doc::Document, tol: f32) {
     let merged = merged_composite(&f).unwrap();
     let d2 = import("x.psd", &r.bytes).unwrap().document;
     let mut ours = photocraft_compose::flatten(&d2).px;
+    if d.depth == SampleType::F32 {
+        // 32-bit composites keep values outside 0..1 (unclipped float adjustments); the merged
+        // image is compared through its 8-bit preview, which clips them.
+        for p in &mut ours {
+            for v in &mut p[..3] {
+                *v = v.clamp(0.0, 1.0);
+            }
+        }
+    }
     if d.mode == ColorMode::Cmyk {
         // The merged CMYK image is the RGB composite separated through the CMYK profile, which
         // gamut-maps colours that blend modes push outside CMYK: project ours the same way.
