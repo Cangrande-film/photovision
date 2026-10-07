@@ -114,8 +114,8 @@ pub(crate) fn list_images(dir: &str) -> Result<Vec<String>> {
 
 /// Extensions the batch commands pick up from a folder.
 pub(crate) const OPENABLE: &[&str] = &[
-    "psd", "psb", "pcraft", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "tga", "exr", "hdr", "qoi", "ico", "pnm", "ppm", "pgm", "dng", "cr2",
-    "nef", "nrw", "arw", "pef",
+    "psd", "psb", "pcraft", "pvision", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "tga", "exr", "hdr", "qoi", "ico", "pnm", "ppm", "pgm",
+    "dng", "cr2", "nef", "nrw", "arw", "pef",
 ];
 
 pub(crate) fn file_name(path: &str) -> String {
@@ -128,9 +128,9 @@ pub fn extension(path: &str) -> Option<String> {
 }
 
 /// Whether a save without a new path may write back to `path`: only layered files (PSD, PSB,
-/// .pcraft). A flat file goes through Save As instead, so it is never flattened over the original.
+/// .pcraft and PhotoVision's .pvision). A flat file goes through Save As instead, so it is never flattened over the original.
 pub fn saves_in_place(path: &str) -> bool {
-    extension(path).is_some_and(|ext| matches!(ext.as_str(), "psd" | "psb" | "pcraft"))
+    extension(path).is_some_and(|ext| matches!(ext.as_str(), "psd" | "psb" | "pcraft" | "pvision"))
 }
 
 pub(crate) fn stem(path: &str) -> String {

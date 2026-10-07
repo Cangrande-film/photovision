@@ -66,6 +66,7 @@ mod layer_reveal;
 pub mod layer_row_ui;
 pub mod layer_style;
 pub mod layer_tree_ui;
+pub mod library_ui;
 pub mod links;
 pub mod liquify_ui;
 pub mod mask_thumbs_ui;
@@ -151,6 +152,8 @@ pub struct ExportSettings {
 pub type ExportFn = Box<dyn Fn(&Document, &str, &ExportSettings) -> Result<(Vec<u8>, Vec<String>), String>>;
 pub type PickOpenFn = Box<dyn FnMut() -> Option<(String, Vec<u8>)>>;
 pub type PickSaveFn = Box<dyn FnMut(&str) -> Option<String>>;
+/// Show a file dialog for the Library and return the chosen paths (empty when cancelled).
+pub type PickPathsFn = Box<dyn FnMut(library_ui::PathPick) -> Vec<String>>;
 pub type WriteFn = Box<dyn FnMut(&str, &[u8]) -> Result<(), String>>;
 /// Read bytes through the desktop control session's authorized read root.
 pub type AutomationReadFn = Box<dyn FnMut(&str) -> Result<(String, Vec<u8>), String>>;
@@ -243,6 +246,9 @@ pub struct Services {
     /// The ICC profile of the display under a screen point, queried in the background when the
     /// window settles after a move (see `monitor_follow`). `None` on the web.
     pub detect_monitor_profile: Option<monitor_follow::DetectMonitorFn>,
+    /// File dialogs that return paths (project files, photos to import, folders) for the
+    /// Library (see `library_ui`). `None` on the web, where projects are unavailable.
+    pub pick_paths: Option<PickPathsFn>,
 }
 
 pub struct PhotocraftApp {
@@ -381,6 +387,8 @@ pub struct PhotocraftApp {
     pub background_jobs: bool,
     /// Background job bookkeeping: opening tabs, control replies waiting on a job.
     pub jobs: jobs_ui::JobsUi,
+    /// Library module caches: project info, thumbnail textures, background export (`library_ui`).
+    pub(crate) library: library_ui::Runtime,
     #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
     live_tokens: theme::live::LiveTokens,
 }
@@ -456,6 +464,7 @@ impl PhotocraftApp {
             stylus: Default::default(),
             background_jobs: false,
             jobs: Default::default(),
+            library: Default::default(),
             #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
             live_tokens: theme::live::LiveTokens::from_env(),
         };
@@ -556,6 +565,9 @@ impl PhotocraftApp {
         self.perf.command_ms = gpu_canvas::now_ms() - t0;
         match &r {
             Ok(_) => {
+                if !matches!(id, "project.info" | "photo.thumbnail") {
+                    self.library.stale = true;
+                }
                 self.sync_views();
                 if self.ui.status_error {
                     self.ui.status.clear();
@@ -888,7 +900,12 @@ impl eframe::App for PhotocraftApp {
         // Finder double-click / Open With / Dock drops (macOS open-documents events).
         self.drain_os_events(ctx);
         // Files dropped onto the window open as documents (with their path, like File › Open).
-        self.open_dropped(ctx.input(|i| i.raw.dropped_files.clone()));
+        // In the Library they are imported into the shown album instead.
+        let dropped = ctx.input(|i| i.raw.dropped_files.clone());
+        if !library_ui::take_drop(self, &dropped) {
+            self.open_dropped(dropped);
+        }
+        library_ui::tick(self);
         // The control transport wakes the UI on arrival (ctx.request_repaint); only poll while a
         // screenshot is pending. (Polling every 50 ms here made idle apps render at 20 fps.)
         if !self.pending_screenshots.is_empty() {
@@ -918,22 +935,28 @@ impl eframe::App for PhotocraftApp {
         if chrome {
             panels::title_bar(self, ui);
         }
-        if chrome && self.ui.panels.options_bar {
+        // The Library replaces the editor's tools, options and panels with its own.
+        let library = library_ui::active(self);
+        if chrome && self.ui.panels.options_bar && !library {
             panels::options_bar(self, ui);
         }
         if chrome && self.ui.panels.status_bar {
             panels::status_bar(self, ui);
         }
-        if chrome && self.ui.panels.toolbar {
+        if chrome && self.ui.panels.toolbar && !library {
             panels::toolbar(self, ui);
         }
-        if chrome {
+        if chrome && !library {
             panels::right_dock(self, ui);
         }
         let t = theme::Tokens::get(&ctx);
         let backdrop = if chrome { prefs_ui::pasteboard_color(self).unwrap_or(t.canvas) } else { egui::Color32::BLACK };
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(backdrop)).show(ui, |ui| {
-            canvas::document_area(self, ui);
+            if library {
+                library_ui::view(self, ui);
+            } else {
+                canvas::document_area(self, ui);
+            }
         });
         panels::properties_window(self, &ctx);
         brush_panel::window(self, &ctx);

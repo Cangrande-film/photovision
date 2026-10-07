@@ -2014,3 +2014,74 @@
 	Details	Podrobnosti
 
 	Rendering mode	Režim vykreslování
+# PhotoVision Library (projects, albums, colour management)
+	Project	Projekt
+	On	Zapnuto
+	Library	Knihovna
+	Albums	Alba
+	New Project…	Nový projekt…
+	Open Project…	Otevřít projekt…
+	Save Project	Uložit projekt
+	Close Project	Zavřít projekt
+	Project Settings…	Nastavení projektu…
+	New Album…	Nové album…
+	Import Photos…	Importovat fotografie…
+	Export Album…	Exportovat album…
+	Rename Album…	Přejmenovat album…
+	Delete Album…	Odstranit album…
+	Input color space	Vstupní barevný prostor
+	Photo color space	Barevný prostor fotografie
+	Output color space	Výstupní barevný prostor
+	Rendering intent	Způsob vykreslení
+	Black point compensation	Kompenzace černého bodu
+	Add (reference in place)	Přidat (odkaz na místě)
+	Album {n}	Album {n}
+	Album: {name}	Album: {name}
+	Album:	Album:
+	Albums group the photos of a project.	Alba seskupují fotografie projektu.
+	An album export is already running	Export alba již probíhá
+	Auto (embedded profile)	Automaticky (vložený profil)
+	Choose…	Vybrat…
+	Color management for every photo in “{name}”. Albums and photos can override each setting.	Správa barev pro všechny fotografie v „{name}“. Alba a fotografie mohou každé nastavení přepsat.
+	Copies the files next to the project, so it can move as one folder.	Zkopíruje soubory vedle projektu, aby šel přesunout jako jedna složka.
+	Copy into project folder	Kopírovat do složky projektu
+	Couldn't rebuild from the original	Nelze znovu sestavit z originálu
+	Create an album to start	Začněte vytvořením alba
+	Delete the album “{name}” from the project?	Odstranit album „{name}“ z projektu?
+	Do you want to save the changes to the project “{name}” before closing it?	Chcete před zavřením uložit změny projektu „{name}“?
+	Do you want to save the changes to the project “{name}” before quitting?	Chcete před ukončením uložit změny projektu „{name}“?
+	Each photo is flattened and converted to its Output color space.	Každá fotografie se sloučí a převede do svého výstupního barevného prostoru.
+	Edited	Upraveno
+	File not found: {path}	Soubor nenalezen: {path}
+	Files:	Soubory:
+	Folder:	Složka:
+	Format:	Formát:
+	Import photos, or drop image files here.	Importujte fotografie nebo sem přetáhněte obrázky.
+	Inherit ({value})	Zdědit ({value})
+	Input → Photo → Output color space	Barevný prostor: vstup → fotografie → výstup
+	Missing	Chybí
+	Monitor: {profile}	Monitor: {profile}
+	New album	Nové album
+	No albums yet	Zatím žádná alba
+	No photos in this album yet	V tomto albu zatím nejsou fotografie
+	No project is open.	Není otevřen žádný projekt.
+	Opened photo	Fotografie otevřena
+	Photo: {name}	Fotografie: {name}
+	Photos open in the Input space and are edited in the Photo space; the Output space is used for export and soft-proofed on screen.	Fotografie se otevírají ve vstupním prostoru a upravují v prostoru fotografie; výstupní prostor se použije při exportu a simuluje se na obrazovce.
+	Project: {name}	Projekt: {name}
+	Projects need the desktop app (there is no file system here)	Projekty vyžadují desktopovou aplikaci (zde není souborový systém)
+	Quality:	Kvalita:
+	Re-read the original files; layers above the bottom one are kept	Znovu načte původní soubory; vrstvy nad spodní zůstanou
+	Rebuild from original	Znovu sestavit z originálu
+	Relink…	Znovu propojit…
+	Remove from Project…	Odebrat z projektu…
+	Replace existing files	Nahradit existující soubory
+	Select an album first	Nejprve vyberte album
+	Set in Edit › Color Settings › Monitor Profile	Nastavuje se v Úpravy › Nastavení barev › Profil monitoru
+	The files on disk are kept, and so are their edits.	Soubory na disku i jejich úpravy zůstanou zachovány.
+	The photos stay where they are; the project points to them.	Fotografie zůstanou, kde jsou; projekt na ně odkazuje.
+	…and {n} more	…a {n} dalších
+@plural	{n} photo|{n} photos	{n} fotografie|{n} fotografie|{n} fotografií
+@plural	{n} album|{n} albums	{n} album|{n} alba|{n} alb
+@plural	{n} file|{n} files	{n} soubor|{n} soubory|{n} souborů
+@plural	Imported {n} photo|Imported {n} photos	Importována {n} fotografie|Importovány {n} fotografie|Importováno {n} fotografií

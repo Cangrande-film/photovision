@@ -74,7 +74,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
             } else {
                 440.0
             }));
-            if let Some(w) = crate::file_ui::dialog_width(&d.fields) {
+            if let Some(w) = crate::file_ui::dialog_width(&d.fields).or_else(|| crate::library_ui::dialog_width(&d.fields)) {
                 ui.set_min_width(w);
                 ui.set_max_width(w);
             }
@@ -112,6 +112,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 DialogKind::Command if crate::rasterize_prompt::owns(&fields) => crate::rasterize_prompt::body(ui, &fields),
                 DialogKind::Command if crate::variables_ui::owns(&fields) => crate::variables_ui::body(app, ui, &mut fields),
                 DialogKind::Command if crate::file_ui::owns(&fields) => crate::file_ui::body(app, ui, &mut fields),
+                DialogKind::Command if crate::library_ui::owns(&fields) => crate::library_ui::body(app, ui, &mut fields),
                 DialogKind::Command if crate::color_picker_ui::owns(&fields) => crate::color_picker_ui::body(ui, &mut fields),
                 DialogKind::Command if crate::color_range_ui::owns(&fields) => crate::color_range_ui::body(app, ui, &mut fields),
                 DialogKind::Command if crate::prefs_ui::owns(&fields) => crate::prefs_ui::body(app, ui, &mut fields),
@@ -141,7 +142,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     } else if d.fields.contains_key("__export") {
                         tl!("Export")
                     } else {
-                        crate::file_ui::ok_label(&d.fields).unwrap_or(tl!("OK"))
+                        crate::file_ui::ok_label(&d.fields).or_else(|| crate::library_ui::ok_label(&d.fields)).unwrap_or(tl!("OK"))
                     };
                     if crate::widgets::primary_button(ui, ok_label, 84.0).clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                         outcome = Some(true);
@@ -236,6 +237,7 @@ pub fn confirm(app: &mut PhotocraftApp, id: u64) -> Result<Value, String> {
         DialogKind::Command if crate::rasterize_prompt::owns(&d.fields) => crate::rasterize_prompt::confirm(app, &d.fields),
         DialogKind::Command if crate::variables_ui::owns(&d.fields) => crate::variables_ui::confirm(app, &d.fields),
         DialogKind::Command if crate::file_ui::owns(&d.fields) => crate::file_ui::confirm(app, &d.fields),
+        DialogKind::Command if crate::library_ui::owns(&d.fields) => crate::library_ui::confirm(app, &d.fields),
         DialogKind::Command if crate::color_picker_ui::owns(&d.fields) => crate::color_picker_ui::confirm(app, &d.fields),
         DialogKind::Command if crate::color_range_ui::owns(&d.fields) => crate::color_range_ui::confirm(app, &d.fields),
         DialogKind::Command if crate::prefs_ui::owns(&d.fields) => crate::prefs_ui::confirm(app, &d.fields),

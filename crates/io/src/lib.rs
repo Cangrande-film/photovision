@@ -148,7 +148,7 @@ pub fn import_with(name: &str, bytes: &[u8], ctl: &photocraft_raster::Interrupt)
 
 fn import_stages(name: &str, bytes: &[u8], ctl: &photocraft_raster::Interrupt) -> Result<ImportResult, IoError> {
     // A declared native extension must reach its loader so malformed bundles retain format errors.
-    if has_extension(name, photocraft_format::EXTENSION) || photocraft_format::is_pcraft(bytes) {
+    if has_extension(name, photocraft_format::EXTENSION) || has_extension(name, PHOTOVISION_EXTENSION) || photocraft_format::is_pcraft(bytes) {
         return Ok(ImportResult { document: photocraft_format::load_from_bytes(bytes)?, warnings: Vec::new() });
     }
     if is_psd(bytes) {
@@ -175,9 +175,18 @@ fn has_extension(name: &str, expected: &str) -> bool {
 
 /// Exports `doc` to the format named by `name_or_ext` (a file name, path or
 /// bare extension).
+/// PhotoVision's name for the native bundle (project photo sidecars, `IMG_0001.jpg.pvision`):
+/// the same format as `.pcraft`.
+pub const PHOTOVISION_EXTENSION: &str = "pvision";
+
+/// Is `ext` (lower case, no dot) the native bundle: `pcraft` or `pvision`?
+pub fn is_native_extension(ext: &str) -> bool {
+    ext.eq_ignore_ascii_case(photocraft_format::EXTENSION) || ext.eq_ignore_ascii_case(PHOTOVISION_EXTENSION)
+}
+
 pub fn export(doc: &Document, name_or_ext: &str, opts: &ExportOptions) -> Result<ExportResult, IoError> {
     let ext = extension(name_or_ext);
-    if ext == photocraft_format::EXTENSION {
+    if is_native_extension(&ext) {
         let previews = photocraft_format::SaveOptions {
             thumbnail: Some(photocraft_compose::thumbnail(doc, 256)),
             composite: Some(photocraft_compose::thumbnail(doc, 1024)),

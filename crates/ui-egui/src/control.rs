@@ -70,8 +70,10 @@ pub enum Outcome {
 
 /// The fields `ui.set` reads. Anything else is rejected before a field is applied, so a typo or
 /// a field the method doesn't have can't reply with success while nothing changes (#412).
-pub const UI_SET_FIELDS: [&str; 16] = [
+pub const UI_SET_FIELDS: [&str; 18] = [
     "tool",
+    "module",
+    "library",
     "panels",
     "dock",
     "dockTabs",
@@ -267,6 +269,25 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest
                 match serde_json::from_value(v) {
                     Ok(v) => app.ui.brushes_panel.view = v,
                     Err(e) => return err(format!("brushesView: {e} (list, grid)")),
+                }
+            }
+            // PhotoVision Library: "library" | "edit", and the Library selection (merged).
+            if let Some(m) = p.get("module").filter(|v| !v.is_null()) {
+                match serde_json::from_value(m.clone()) {
+                    Ok(m) => app.ui.module = m,
+                    Err(e) => return err(format!("module: {e} (library, edit)")),
+                }
+            }
+            if let Some(lib) = p.get("library").and_then(Value::as_object) {
+                let mut cur = serde_json::to_value(&app.ui.library).unwrap_or_default();
+                if let Some(c) = cur.as_object_mut() {
+                    for (k, v) in lib {
+                        c.insert(k.clone(), v.clone());
+                    }
+                }
+                match serde_json::from_value(cur) {
+                    Ok(v) => app.ui.library = v,
+                    Err(e) => return err(format!("library: {e}")),
                 }
             }
             if let Some(size) = p.get("brushSize").and_then(Value::as_f64) {
@@ -538,6 +559,8 @@ pub fn inspect(app: &PhotocraftApp, ctx: &egui::Context) -> Value {
         "status": app.ui.status,
         "statusError": app.ui.status_error,
         "notices": app.ui.notices,
+        "module": app.ui.module,
+        "library": app.ui.library,
         "gpuFallbackNotice": app.ui.gpu_fallback_notice,
         "frame": app.frame,
         "session": photocraft_engine::inspect::session(&app.session),

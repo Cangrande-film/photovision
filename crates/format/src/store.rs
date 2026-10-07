@@ -187,6 +187,11 @@ impl LoadFetch<'_> {
     }
 }
 
+/// One blob of a bundle by hash (default load limits), without loading the document.
+pub(crate) fn read_blob(src: &dyn Source, hash: &str) -> Result<Arc<Vec<u8>>> {
+    LoadFetch { src, opts: LoadOptions::default(), total: 0, blobs: HashMap::new() }.blob(hash)
+}
+
 impl Fetch for LoadFetch<'_> {
     fn tile(&mut self, hash: &str, len: usize) -> Result<Vec<u8>> {
         if !is_valid_hash(hash) {

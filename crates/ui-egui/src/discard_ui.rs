@@ -4,6 +4,10 @@
 //! egui is immediate-mode, so the action is parked in [`Prompt`] while the modal is up and re-run
 //! once every affected document has been answered. Cancel at any point drops it. Documents are
 //! tracked by id, not tab index, so closing one elsewhere while the prompt is up can't retarget it.
+//!
+//! An open PhotoVision project with unsaved changes is asked about last, when the action would
+//! close it (quitting, Close/Open/New Project); "Don't Save" runs the project command with
+//! `"discard": true`.
 
 use egui::Key;
 use photocraft_doc::DocId;
@@ -20,6 +24,8 @@ pub struct Prompt {
     /// The document the command was aimed at (`document` param, else the active one), if it has one.
     target: Option<DocId>,
     docs: Vec<DocId>,
+    /// The open project's unsaved changes still have to be asked about (after the documents).
+    project: bool,
 }
 
 fn index_of(app: &PhotocraftApp, id: DocId) -> Option<usize> {
@@ -58,13 +64,23 @@ fn discarded(app: &PhotocraftApp, id: &str, params: &Value) -> (Option<DocId>, V
     (target.and_then(|i| docs.get(i)).map(|d| d.doc.id), dirty)
 }
 
+/// Commands that close the open project (with its unsaved changes) unless `"discard": true` says
+/// the user already chose to lose them.
+const PROJECT_DISCARDING: &[&str] = &["project.close", "project.open", "project.new", EXIT];
+
+/// Would `id` throw away the open project's unsaved changes?
+fn discards_project(app: &PhotocraftApp, id: &str, params: &Value) -> bool {
+    PROJECT_DISCARDING.contains(&id) && params.get("discard").and_then(Value::as_bool) != Some(true) && app.session.project.as_ref().is_some_and(|p| p.dirty)
+}
+
 /// Park `id` behind a prompt if it would discard unsaved work. Returns whether it did.
 pub fn intercept(app: &mut PhotocraftApp, id: &str, params: &Value) -> bool {
     let (target, docs) = discarded(app, id, params);
-    if docs.is_empty() {
+    let project = discards_project(app, id, params);
+    if docs.is_empty() && !project {
         return false;
     }
-    let prompt = Prompt { id: id.to_string(), params: params.clone(), target, docs };
+    let prompt = Prompt { id: id.to_string(), params: params.clone(), target, docs, project };
     match &app.discard {
         None => app.discard = Some(prompt),
         // Quitting overrides whatever is pending: it covers every document, so nothing is lost.
@@ -94,8 +110,19 @@ fn advance(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let Some(p) = app.discard.as_mut() else { return };
     if !p.docs.is_empty() {
         p.docs.remove(0);
+    } else if p.project {
+        // Answered for the project (saved, or its changes may go): the command may close it.
+        p.project = false;
+        if p.id != EXIT {
+            if !p.params.is_object() {
+                p.params = json!({});
+            }
+            if let Some(o) = p.params.as_object_mut() {
+                o.insert("discard".into(), json!(true));
+            }
+        }
     }
-    if !p.docs.is_empty() {
+    if !p.docs.is_empty() || p.project {
         return;
     }
     let Some(Prompt { id, mut params, target, .. }) = app.discard.take() else { return };
@@ -133,7 +160,12 @@ fn save(app: &mut PhotocraftApp, ctx: &egui::Context, doc: DocId) -> bool {
 
 pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let Some(p) = &app.discard else { return };
-    let Some(&doc) = p.docs.first() else { return };
+    let Some(&doc) = p.docs.first() else {
+        if p.project {
+            show_project(app, ctx);
+        }
+        return;
+    };
     let (exits, reverts) = (p.id == EXIT, p.id == "file.revert");
     let Some(name) = index_of(app, doc).map(|i| app.session.documents()[i].doc.name.clone()) else {
         // Closed by something else while the prompt was up: nothing left to ask about.
@@ -154,14 +186,9 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let buttons: &[(&str, Key, bool, f32, Answer)] = if reverts {
         &[("Cancel", Key::C, false, 84.0, Answer::Cancel), ("Revert", Key::R, true, 84.0, Answer::Discard)]
     } else {
-        &[
-            ("Don't Save", Key::D, false, 100.0, Answer::Discard),
-            ("Cancel", Key::C, false, 84.0, Answer::Cancel),
-            ("Save", Key::S, true, 84.0, Answer::Save),
-        ]
+        &[("Don't Save", Key::D, false, 100.0, Answer::Discard), ("Cancel", Key::C, false, 84.0, Answer::Cancel), ("Save", Key::S, true, 84.0, Answer::Save)]
     };
-    let mut answer =
-        ctx.input_mut(|i| buttons.iter().find(|b| i.consume_key(egui::Modifiers::NONE, b.1)).map(|b| b.4));
+    let mut answer = ctx.input_mut(|i| buttons.iter().find(|b| i.consume_key(egui::Modifiers::NONE, b.1)).map(|b| b.4));
     // egui's Tab order follows the right-to-left layout below; walk the buttons left to right instead.
     let step = ctx.input_mut(|i| {
         if i.consume_key(egui::Modifiers::SHIFT, Key::Tab) {
@@ -190,11 +217,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 .rev()
                 .map(|&(label, key, primary, width, a)| {
                     let label = mnemonic(label, key);
-                    let r = if primary {
-                        crate::widgets::primary_button(ui, &label, width)
-                    } else {
-                        crate::widgets::secondary_button(ui, &label, width)
-                    };
+                    let r = if primary { crate::widgets::primary_button(ui, &label, width) } else { crate::widgets::secondary_button(ui, &label, width) };
                     if r.clicked() {
                         answer = Some(a);
                     }
@@ -219,6 +242,64 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         Some(Answer::Discard) => advance(app, ctx),
         Some(Answer::Save) if save(app, ctx, doc) => advance(app, ctx),
         _ => {}
+    }
+}
+
+/// The unsaved-project question: Save runs `project.save` first.
+fn show_project(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    let Some(name) = app.session.project.as_ref().filter(|p| p.dirty).map(|p| p.project.name.clone()) else {
+        // Saved or closed meanwhile: nothing to ask.
+        advance(app, ctx);
+        return;
+    };
+    let exits = app.discard.as_ref().is_some_and(|p| p.id == EXIT);
+    let template = if exits {
+        tl!("Do you want to save the changes to the project “{name}” before quitting?")
+    } else {
+        tl!("Do you want to save the changes to the project “{name}” before closing it?")
+    };
+    let message = crate::i18n::fmt(template, &[("name", &name)]);
+    let mut answer = ctx.input_mut(|i| {
+        [(Key::D, Answer::Discard), (Key::C, Answer::Cancel), (Key::S, Answer::Save)]
+            .into_iter()
+            .find(|(k, _)| i.consume_key(egui::Modifiers::NONE, *k))
+            .map(|(_, a)| a)
+    });
+    let modal = egui::Modal::new(egui::Id::new("discard-project-prompt")).show(ctx, |ui| {
+        ui.set_max_width(420.0);
+        ui.label(egui::RichText::new(tl!("Unsaved changes")).font(crate::theme::semibold(15.0)));
+        ui.add_space(4.0);
+        crate::widgets::hairline(ui);
+        ui.add_space(8.0);
+        ui.label(message);
+        ui.add_space(12.0);
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.spacing_mut().item_spacing.x = 10.0;
+            if crate::widgets::primary_button(ui, &mnemonic("Save", Key::S), 84.0).clicked() {
+                answer = Some(Answer::Save);
+            }
+            if crate::widgets::secondary_button(ui, &mnemonic("Cancel", Key::C), 84.0).clicked() {
+                answer = Some(Answer::Cancel);
+            }
+            if crate::widgets::secondary_button(ui, &mnemonic("Don't Save", Key::D), 100.0).clicked() {
+                answer = Some(Answer::Discard);
+            }
+        });
+    });
+    if modal.should_close() {
+        answer = Some(Answer::Cancel);
+    }
+    match answer {
+        Some(Answer::Cancel) => app.discard = None,
+        Some(Answer::Discard) => advance(app, ctx),
+        Some(Answer::Save) => match app.run("project.save", json!({})) {
+            Ok(_) => advance(app, ctx),
+            Err(e) => {
+                app.ui.status = format!("Couldn't save the project: {e}");
+                app.ui.status_error = true;
+            }
+        },
+        None => {}
     }
 }
 
@@ -349,6 +430,41 @@ mod tests {
         assert!(app.allow_close);
     }
 
+    /// An open project with an unsaved change, in a temp folder.
+    fn app_with_dirty_project(tag: &str) -> (PhotocraftApp, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("pv-discard-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("project.new", json!({"path": dir.join("p.pvproj").to_string_lossy()})).unwrap();
+        app.run("album.new", json!({"name": "A"})).unwrap();
+        (app, dir)
+    }
+
+    #[test]
+    fn an_unsaved_project_is_asked_about_before_quitting_or_closing() {
+        let (mut app, dir) = app_with_dirty_project("quit");
+        let ctx = egui::Context::default();
+        assert!(intercept(&mut app, EXIT, &Value::Null), "quitting asks about the project");
+        assert!(app.discard.as_ref().unwrap().project);
+        advance(&mut app, &ctx);
+        assert!(app.allow_close, "Don't Save lets the app quit");
+        app.allow_close = false;
+        // Close Project: "Don't Save" closes it with discard.
+        crate::menus::invoke(&mut app, &ctx, "project.close", json!({})).unwrap();
+        assert!(app.session.project.is_some(), "nothing closes before the user answers");
+        advance(&mut app, &ctx);
+        assert!(app.session.project.is_none());
+        assert!(app.discard.is_none());
+        // Explicit discard and a clean project don't ask.
+        let (mut app, dir2) = app_with_dirty_project("clean");
+        assert!(!intercept(&mut app, "project.close", &json!({"discard": true})));
+        app.run("project.save", json!({})).unwrap();
+        assert!(!intercept(&mut app, EXIT, &Value::Null));
+        let _ = std::fs::remove_dir_all(dir);
+        let _ = std::fs::remove_dir_all(dir2);
+    }
+
     #[test]
     fn mnemonic_labels_bracket_the_key() {
         assert_eq!(mnemonic("Don't Save", Key::D), "(D)on't Save");
@@ -366,9 +482,7 @@ mod tests {
         PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
         assert!(intercept(h.state_mut(), "file.closeAll", &Value::Null));
         h.run_steps(2);
-        let focused = |h: &Harness<'_, PhotocraftApp>| {
-            ["(D)on't Save", "(C)ancel", "(S)ave"].into_iter().find(|l| h.get_by_label(l).is_focused())
-        };
+        let focused = |h: &Harness<'_, PhotocraftApp>| ["(D)on't Save", "(C)ancel", "(S)ave"].into_iter().find(|l| h.get_by_label(l).is_focused());
         for want in ["(D)on't Save", "(C)ancel", "(S)ave", "(D)on't Save"] {
             h.key_press(Key::Tab);
             h.run_steps(2);

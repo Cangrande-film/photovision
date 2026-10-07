@@ -2004,3 +2004,74 @@
 	Details	詳細
 
 	Rendering mode	レンダリングモード
+# PhotoVision Library (projects, albums, colour management)
+	Project	プロジェクト
+	On	オン
+	Library	ライブラリ
+	Albums	アルバム
+	New Project…	新規プロジェクト…
+	Open Project…	プロジェクトを開く…
+	Save Project	プロジェクトを保存
+	Close Project	プロジェクトを閉じる
+	Project Settings…	プロジェクト設定…
+	New Album…	新規アルバム…
+	Import Photos…	写真を読み込み…
+	Export Album…	アルバムを書き出し…
+	Rename Album…	アルバム名を変更…
+	Delete Album…	アルバムを削除…
+	Input color space	入力カラースペース
+	Photo color space	写真のカラースペース
+	Output color space	出力カラースペース
+	Rendering intent	マッチング方法
+	Black point compensation	黒点の補正
+	Add (reference in place)	追加（元の場所を参照）
+	Album {n}	アルバム {n}
+	Album: {name}	アルバム : {name}
+	Album:	アルバム :
+	Albums group the photos of a project.	アルバムでプロジェクトの写真をまとめます。
+	An album export is already running	アルバムの書き出しはすでに実行中です
+	Auto (embedded profile)	自動（埋め込みプロファイル）
+	Choose…	選択…
+	Color management for every photo in “{name}”. Albums and photos can override each setting.	「{name}」のすべての写真のカラーマネジメント。各設定はアルバムや写真ごとに上書きできます。
+	Copies the files next to the project, so it can move as one folder.	ファイルをプロジェクトの横にコピーし、フォルダーごと移動できるようにします。
+	Copy into project folder	プロジェクトフォルダーにコピー
+	Couldn't rebuild from the original	オリジナルから再構築できませんでした
+	Create an album to start	アルバムを作成して始めましょう
+	Delete the album “{name}” from the project?	アルバム「{name}」をプロジェクトから削除しますか？
+	Do you want to save the changes to the project “{name}” before closing it?	プロジェクト「{name}」を閉じる前に変更を保存しますか？
+	Do you want to save the changes to the project “{name}” before quitting?	終了する前にプロジェクト「{name}」の変更を保存しますか？
+	Each photo is flattened and converted to its Output color space.	各写真は統合され、出力カラースペースに変換されます。
+	Edited	編集済み
+	File not found: {path}	ファイルが見つかりません : {path}
+	Files:	ファイル :
+	Folder:	フォルダー :
+	Format:	形式 :
+	Import photos, or drop image files here.	写真を読み込むか、ここに画像ファイルをドロップしてください。
+	Inherit ({value})	継承（{value}）
+	Input → Photo → Output color space	入力 → 写真 → 出力カラースペース
+	Missing	見つかりません
+	Monitor: {profile}	モニター : {profile}
+	New album	新規アルバム
+	No albums yet	アルバムはまだありません
+	No photos in this album yet	このアルバムにはまだ写真がありません
+	No project is open.	プロジェクトが開かれていません。
+	Opened photo	写真を開きました
+	Photo: {name}	写真 : {name}
+	Photos open in the Input space and are edited in the Photo space; the Output space is used for export and soft-proofed on screen.	写真は入力スペースで開き、写真のスペースで編集されます。出力スペースは書き出しに使われ、画面上でソフト校正されます。
+	Project: {name}	プロジェクト : {name}
+	Projects need the desktop app (there is no file system here)	プロジェクトにはデスクトップアプリが必要です（ここにはファイルシステムがありません）
+	Quality:	画質 :
+	Re-read the original files; layers above the bottom one are kept	オリジナルファイルを読み直します。一番下より上のレイヤーは保持されます
+	Rebuild from original	オリジナルから再構築
+	Relink…	再リンク…
+	Remove from Project…	プロジェクトから削除…
+	Replace existing files	既存のファイルを置き換え
+	Select an album first	最初にアルバムを選択してください
+	Set in Edit › Color Settings › Monitor Profile	編集 › カラー設定 › モニタープロファイルで設定します
+	The files on disk are kept, and so are their edits.	ディスク上のファイルとその編集内容は保持されます。
+	The photos stay where they are; the project points to them.	写真は元の場所のままで、プロジェクトがそれを参照します。
+	…and {n} more	…ほか {n} 件
+@plural	{n} photo|{n} photos	{n} 枚の写真
+@plural	{n} album|{n} albums	{n} 個のアルバム
+@plural	{n} file|{n} files	{n} 個のファイル
+@plural	Imported {n} photo|Imported {n} photos	{n} 枚の写真を読み込みました

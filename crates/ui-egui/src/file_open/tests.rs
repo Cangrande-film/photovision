@@ -104,8 +104,8 @@ fn project_photos_save_to_their_sidecar() {
     app.session.active_mut().unwrap().project_photo = Some(id);
     // A flat original would go through Save As (cancelled here); a project photo writes its sidecar.
     let r = menus::invoke(&mut app, &ctx, "file.save", json!({})).unwrap();
-    assert_eq!(r["path"], "/pics/IMG_1.jpg.pcraft");
-    assert_eq!(written.borrow().last().map(|(p, _)| p.clone()).as_deref(), Some("/pics/IMG_1.jpg.pcraft"));
+    assert_eq!(r["path"], "/pics/IMG_1.jpg.pvision");
+    assert_eq!(written.borrow().last().map(|(p, _)| p.clone()).as_deref(), Some("/pics/IMG_1.jpg.pvision"));
 }
 
 #[test]

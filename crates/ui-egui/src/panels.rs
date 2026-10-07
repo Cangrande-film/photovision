@@ -297,7 +297,9 @@ pub fn title_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 let max = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
                 ui.ctx().send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
             }
-            let title = app.session.active().map(|d| format!("{}{}", d.doc.name, if d.is_dirty() { "  •" } else { "" })).unwrap_or_else(|| "PhotoVision".into());
+            let title = crate::library_ui::window_title(app)
+                .or_else(|| app.session.active().map(|d| format!("{}{}", d.doc.name, if d.is_dirty() { "  •" } else { "" })))
+                .unwrap_or_else(|| "PhotoVision".into());
             // The menus and the right-hand controls are laid out first; the title is centred in
             // whatever room is left between them, shortened or dropped rather than drawn over them.
             let (mut menus_right, mut controls_left) = (full.left(), full.right());
@@ -337,6 +339,8 @@ pub fn title_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         if ui.add(discord).on_hover_text(format!("Join the ArtCraft Discord ({})", crate::links::DISCORD)).clicked() {
                             crate::links::open(app, ui.ctx(), crate::links::DISCORD);
                         }
+                        // "Library | Edit" while a project is open.
+                        crate::library_ui::module_switch(app, ui);
                         ui.min_rect().left()
                     })
                     .inner;
@@ -872,6 +876,10 @@ pub fn status_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     label(ui, &format!("{w} × {h} px"));
                     widgets::vline(ui, 16.0);
                     label(ui, &crate::i18n::trn(crate::i18n::current(), layers as u64, "{n} layer", "{n} layers"));
+                    if let Some(p) = crate::chrome_ui::pipeline_text(app, i) {
+                        widgets::vline(ui, 16.0);
+                        label(ui, &p);
+                    }
                 } else {
                     label(ui, tl!("No document"));
                 }

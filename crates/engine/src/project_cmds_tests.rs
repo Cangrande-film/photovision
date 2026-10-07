@@ -114,14 +114,14 @@ fn project_workflow_end_to_end() {
     assert!(crate::color_cmds::document_profile(&d.doc).same_colors(Builtin::AcesCg.profile()));
     assert_eq!(s.doc_pipeline(i).unwrap().pipeline.output.as_str(), "rec709-bt1886");
     assert_eq!(ok(&mut s, "photo.open", json!({"id": a_id}))["alreadyOpen"], true);
-    assert_eq!(norm(&s.active_photo_sidecar().unwrap()), norm(&format!("{a_jpg}.pcraft")));
+    assert_eq!(norm(&s.active_photo_sidecar().unwrap()), norm(&format!("{a_jpg}.pvision")));
 
     // Edit, save the sidecar; the original is untouched.
     let before = std::fs::read(&a_jpg).unwrap();
     ok(&mut s, "layer.new.layer", json!({}));
     assert!(s.active().unwrap().is_dirty());
     let r = ok(&mut s, "photo.save", json!({}));
-    assert_eq!(norm(r["path"].as_str().unwrap()), norm(&format!("{a_jpg}.pcraft")));
+    assert_eq!(norm(r["path"].as_str().unwrap()), norm(&format!("{a_jpg}.pvision")));
     assert!(!s.active().unwrap().is_dirty());
     assert_eq!(std::fs::read(&a_jpg).unwrap(), before);
     let layers = s.active().unwrap().doc.layers.len();
@@ -135,6 +135,11 @@ fn project_workflow_end_to_end() {
     ok(&mut s, "project.setColor", json!({"level": "photo", "id": a_id, "field": "input", "value": null}));
     ok(&mut s, "project.setColor", json!({"level": "photo", "id": a_id, "field": "output", "value": null}));
 
+    // The sidecar is a native bundle any open path reads (by name and by content).
+    let side = format!("{a_jpg}.pvision");
+    let bytes = std::fs::read(&side).unwrap();
+    assert_eq!(photocraft_io::import("IMG.jpg.pvision", &bytes).unwrap().document.layers.len(), layers);
+    assert!(!std::path::Path::new(&format!("{a_jpg}.pcraft")).exists(), "no .pcraft sidecar");
     // Reopen from the sidecar.
     s.close(i);
     let r = ok(&mut s, "photo.open", json!({"id": a_id}));
@@ -303,5 +308,108 @@ fn commands_reject_bad_params() {
     // Inherit (null) is accepted.
     ok(&mut s, "project.setColor", json!({"level": "project", "field": "working", "value": null}));
     ok(&mut s, "project.setColor", json!({"level": "project", "field": "bpc", "value": false}));
+    ok(&mut s, "project.close", json!({"discard": true}));
+}
+
+/// The centre pixel of a cached thumbnail PNG.
+fn thumb_centre(path: &str) -> [u8; 4] {
+    let img = photocraft_codecs::decode(&std::fs::read(path).unwrap()).unwrap();
+    let rgba = img.to_rgba8();
+    let (w, h) = (img.width() as usize, img.height() as usize);
+    let i = ((h / 2) * w + w / 2) * 4;
+    [rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]]
+}
+
+#[test]
+fn thumbnails_of_linear_sidecars_are_converted_for_display() {
+    let t = TempDir::new("thumb");
+    let src = t.path("grey.png");
+    write_image(&src, [0.5, 0.5, 0.5]);
+    let mut s = Session::new();
+    ok(&mut s, "project.new", json!({"path": t.path("p.pvproj")}));
+    let album = ok(&mut s, "album.new", json!({"name": "A"}))["id"].as_u64().unwrap();
+    let id = ok(&mut s, "album.import", json!({"album": album, "mode": "reference", "paths": [src]}))["results"][0]["id"].as_u64().unwrap();
+    let plain = ok(&mut s, "photo.thumbnail", json!({"id": id, "maxSide": 32}));
+    let c = thumb_centre(plain["path"].as_str().unwrap());
+    assert!((c[0] as i32 - 128).abs() <= 3, "original thumbnail {c:?}");
+    // A linear ACEScg sidecar: its stored thumbnail is linear, the cached one must not be dark.
+    ok(&mut s, "project.setColor", json!({"level": "project", "field": "working", "value": "acescg"}));
+    ok(&mut s, "photo.open", json!({"id": id}));
+    ok(&mut s, "photo.save", json!({}));
+    let r = ok(&mut s, "photo.thumbnail", json!({"id": id, "maxSide": 32}));
+    assert_eq!(r["cached"], false, "a new sidecar gets a new thumbnail");
+    let c = thumb_centre(r["path"].as_str().unwrap());
+    assert!((c[0] as i32 - 128).abs() <= 6 && (c[2] as i32 - 128).abs() <= 6, "sidecar thumbnail {c:?} (dark = not converted)");
+    // The plan API used by the Library's worker thread agrees.
+    let plan = crate::project_cmds::thumbnail_plan(&s, id, 32).unwrap();
+    assert!(plan.cached);
+    let img = plan.load().unwrap();
+    assert!(img.width <= 32 && img.height <= 32);
+    ok(&mut s, "project.close", json!({"discard": true}));
+}
+
+#[test]
+fn rebuild_rereads_the_original_and_keeps_the_layers_above() {
+    let t = TempDir::new("rebuild");
+    let src = t.path("a.png");
+    write_image(&src, [0.8, 0.4, 0.2]);
+    let mut s = Session::new();
+    ok(&mut s, "project.new", json!({"path": t.path("p.pvproj")}));
+    let album = ok(&mut s, "album.new", json!({"name": "A"}))["id"].as_u64().unwrap();
+    let id = ok(&mut s, "album.import", json!({"album": album, "mode": "reference", "paths": [src]}))["results"][0]["id"].as_u64().unwrap();
+    // Not open yet: a clear error.
+    assert!(s.execute("photo.rebuild", json!({"id": id})).is_err());
+    ok(&mut s, "photo.open", json!({"id": id}));
+    ok(&mut s, "layer.new.layer", json!({}));
+    let layers = s.active().unwrap().doc.layers.len();
+    let r = ok(&mut s, "project.setColor", json!({"level": "photo", "id": id, "field": "input", "value": "display-p3"}));
+    assert_eq!(r["needsRebuild"], true, "{r}");
+    let before = s.active().unwrap().doc.clone();
+    let r = ok(&mut s, "photo.rebuild", json!({"id": id}));
+    assert_eq!(r["pipeline"]["input"], "display-p3", "{r}");
+    let d = s.active().unwrap();
+    assert_eq!(d.doc.layers.len(), layers, "layers above the bottom one are kept");
+    assert_eq!(s.doc_pipeline(0).unwrap().pipeline.input.as_str(), "display-p3");
+    assert!(!std::sync::Arc::ptr_eq(&before, &d.doc));
+    // The canvas changed size: refused, nothing changes.
+    ok(&mut s, "image.canvasSize", json!({"width": 20, "height": 20}));
+    let rev = s.active().unwrap().revision;
+    assert!(s.execute("photo.rebuild", json!({"id": id})).is_err());
+    assert_eq!(s.active().unwrap().revision, rev);
+    for p in [json!({}), json!({"id": "x"}), json!({"id": -3}), json!({"id": 999})] {
+        assert!(s.execute("photo.rebuild", p.clone()).is_err(), "{p}");
+    }
+    ok(&mut s, "project.close", json!({"discard": true}));
+    assert!(s.execute("photo.rebuild", json!({"id": id})).is_err(), "no project");
+}
+
+#[test]
+fn sidecars_are_pvision_files_and_never_imported() {
+    let t = TempDir::new("pvision");
+    let src = t.path("a.png");
+    write_image(&src, [0.2, 0.6, 0.4]);
+    let mut s = Session::new();
+    ok(&mut s, "project.new", json!({"path": t.path("p.pvproj")}));
+    let album = ok(&mut s, "album.new", json!({"name": "A"}))["id"].as_u64().unwrap();
+    let id = ok(&mut s, "album.import", json!({"album": album, "mode": "reference", "paths": [src]}))["results"][0]["id"].as_u64().unwrap();
+    ok(&mut s, "photo.open", json!({"id": id}));
+    ok(&mut s, "layer.new.layer", json!({}));
+    let r = ok(&mut s, "photo.save", json!({}));
+    let side = r["path"].as_str().unwrap().to_string();
+    assert!(side.ends_with("a.png.pvision"), "{side}");
+    assert!(crate::file_cmds::saves_in_place(&side));
+    // Edits are not photos: .pvision and .pcraft files are skipped as sidecars.
+    let doc = t.path("other.pcraft");
+    std::fs::copy(&side, &doc).unwrap();
+    let r = ok(&mut s, "album.import", json!({"album": album, "mode": "reference", "paths": [side, doc]}));
+    assert_eq!(r["skipped"], 2, "{r}");
+    assert!(r["results"].as_array().unwrap().iter().all(|x| x["reason"] == "sidecar"), "{r}");
+    // A legacy `.pcraft` sidecar is still read when there is no `.pvision`.
+    let i = s.photo_document(id).unwrap();
+    s.close(i);
+    std::fs::rename(t.path("a.png.pvision"), t.path("a.png.pcraft")).unwrap();
+    let r = ok(&mut s, "photo.open", json!({"id": id}));
+    assert_eq!(r["fromSidecar"], true, "{r}");
+    assert_eq!(s.active().unwrap().doc.layers.len(), 2);
     ok(&mut s, "project.close", json!({"discard": true}));
 }

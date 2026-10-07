@@ -2088,3 +2088,74 @@
 	Details	Detalles
 
 	Rendering mode	Modo de renderizado
+# PhotoVision Library (projects, albums, colour management)
+	Project	Proyecto
+	On	Activado
+	Library	Biblioteca
+	Albums	Álbumes
+	New Project…	Nuevo proyecto…
+	Open Project…	Abrir proyecto…
+	Save Project	Guardar proyecto
+	Close Project	Cerrar proyecto
+	Project Settings…	Ajustes del proyecto…
+	New Album…	Nuevo álbum…
+	Import Photos…	Importar fotos…
+	Export Album…	Exportar álbum…
+	Rename Album…	Cambiar nombre del álbum…
+	Delete Album…	Eliminar álbum…
+	Input color space	Espacio de color de entrada
+	Photo color space	Espacio de color de la foto
+	Output color space	Espacio de color de salida
+	Rendering intent	Interpretación
+	Black point compensation	Compensación de punto negro
+	Add (reference in place)	Añadir (referencia en su sitio)
+	Album {n}	Álbum {n}
+	Album: {name}	Álbum: {name}
+	Album:	Álbum:
+	Albums group the photos of a project.	Los álbumes agrupan las fotos de un proyecto.
+	An album export is already running	Ya se está exportando un álbum
+	Auto (embedded profile)	Automático (perfil incrustado)
+	Choose…	Elegir…
+	Color management for every photo in “{name}”. Albums and photos can override each setting.	Gestión del color de todas las fotos de “{name}”. Los álbumes y las fotos pueden cambiar cada ajuste.
+	Copies the files next to the project, so it can move as one folder.	Copia los archivos junto al proyecto, para moverlo como una sola carpeta.
+	Copy into project folder	Copiar en la carpeta del proyecto
+	Couldn't rebuild from the original	No se pudo reconstruir desde el original
+	Create an album to start	Crea un álbum para empezar
+	Delete the album “{name}” from the project?	¿Eliminar el álbum “{name}” del proyecto?
+	Do you want to save the changes to the project “{name}” before closing it?	¿Quieres guardar los cambios del proyecto “{name}” antes de cerrarlo?
+	Do you want to save the changes to the project “{name}” before quitting?	¿Quieres guardar los cambios del proyecto “{name}” antes de salir?
+	Each photo is flattened and converted to its Output color space.	Cada foto se acopla y se convierte a su espacio de color de salida.
+	Edited	Editada
+	File not found: {path}	No se encuentra el archivo: {path}
+	Files:	Archivos:
+	Folder:	Carpeta:
+	Format:	Formato:
+	Import photos, or drop image files here.	Importa fotos o suelta archivos de imagen aquí.
+	Inherit ({value})	Heredar ({value})
+	Input → Photo → Output color space	Espacio de color de entrada → foto → salida
+	Missing	Falta
+	Monitor: {profile}	Monitor: {profile}
+	New album	Nuevo álbum
+	No albums yet	Aún no hay álbumes
+	No photos in this album yet	Este álbum aún no tiene fotos
+	No project is open.	No hay ningún proyecto abierto.
+	Opened photo	Foto abierta
+	Photo: {name}	Foto: {name}
+	Photos open in the Input space and are edited in the Photo space; the Output space is used for export and soft-proofed on screen.	Las fotos se abren en el espacio de entrada y se editan en el de la foto; el de salida se usa al exportar y se simula en pantalla.
+	Project: {name}	Proyecto: {name}
+	Projects need the desktop app (there is no file system here)	Los proyectos requieren la aplicación de escritorio (aquí no hay sistema de archivos)
+	Quality:	Calidad:
+	Re-read the original files; layers above the bottom one are kept	Vuelve a leer los archivos originales; se conservan las capas por encima de la inferior
+	Rebuild from original	Reconstruir desde el original
+	Relink…	Volver a vincular…
+	Remove from Project…	Quitar del proyecto…
+	Replace existing files	Reemplazar archivos existentes
+	Select an album first	Selecciona primero un álbum
+	Set in Edit › Color Settings › Monitor Profile	Se ajusta en Edición › Ajustes de color › Perfil del monitor
+	The files on disk are kept, and so are their edits.	Los archivos del disco se conservan, y también sus ediciones.
+	The photos stay where they are; the project points to them.	Las fotos se quedan donde están; el proyecto apunta a ellas.
+	…and {n} more	…y {n} más
+@plural	{n} photo|{n} photos	{n} foto|{n} fotos
+@plural	{n} album|{n} albums	{n} álbum|{n} álbumes
+@plural	{n} file|{n} files	{n} archivo|{n} archivos
+@plural	Imported {n} photo|Imported {n} photos	Se importó {n} foto|Se importaron {n} fotos

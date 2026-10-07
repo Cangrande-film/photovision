@@ -1898,3 +1898,74 @@
 	Brush picker	画笔选择器
 	Erase	擦除
 	Right click with painting tools	使用绘画工具时右键单击
+# PhotoVision Library (projects, albums, colour management)
+	Project	项目
+	On	开启
+	Library	图库
+	Albums	相册
+	New Project…	新建项目…
+	Open Project…	打开项目…
+	Save Project	保存项目
+	Close Project	关闭项目
+	Project Settings…	项目设置…
+	New Album…	新建相册…
+	Import Photos…	导入照片…
+	Export Album…	导出相册…
+	Rename Album…	重命名相册…
+	Delete Album…	删除相册…
+	Input color space	输入色彩空间
+	Photo color space	照片色彩空间
+	Output color space	输出色彩空间
+	Rendering intent	渲染方法
+	Black point compensation	黑场补偿
+	Add (reference in place)	添加（引用原位置）
+	Album {n}	相册 {n}
+	Album: {name}	相册：{name}
+	Album:	相册：
+	Albums group the photos of a project.	相册用来整理项目中的照片。
+	An album export is already running	已有相册正在导出
+	Auto (embedded profile)	自动（嵌入的配置文件）
+	Choose…	选择…
+	Color management for every photo in “{name}”. Albums and photos can override each setting.	“{name}”中所有照片的色彩管理。相册和照片可以覆盖每项设置。
+	Copies the files next to the project, so it can move as one folder.	将文件复制到项目旁边，使项目可以作为一个文件夹移动。
+	Copy into project folder	复制到项目文件夹
+	Couldn't rebuild from the original	无法从原始文件重建
+	Create an album to start	创建相册以开始
+	Delete the album “{name}” from the project?	要从项目中删除相册“{name}”吗？
+	Do you want to save the changes to the project “{name}” before closing it?	关闭项目“{name}”前要保存更改吗？
+	Do you want to save the changes to the project “{name}” before quitting?	退出前要保存项目“{name}”的更改吗？
+	Each photo is flattened and converted to its Output color space.	每张照片都会拼合并转换为其输出色彩空间。
+	Edited	已编辑
+	File not found: {path}	找不到文件：{path}
+	Files:	文件：
+	Folder:	文件夹：
+	Format:	格式：
+	Import photos, or drop image files here.	导入照片，或将图像文件拖放到这里。
+	Inherit ({value})	继承（{value}）
+	Input → Photo → Output color space	输入 → 照片 → 输出色彩空间
+	Missing	缺失
+	Monitor: {profile}	显示器：{profile}
+	New album	新相册
+	No albums yet	还没有相册
+	No photos in this album yet	此相册还没有照片
+	No project is open.	没有打开的项目。
+	Opened photo	已打开照片
+	Photo: {name}	照片：{name}
+	Photos open in the Input space and are edited in the Photo space; the Output space is used for export and soft-proofed on screen.	照片以输入空间打开，在照片空间中编辑；输出空间用于导出，并在屏幕上进行软打样。
+	Project: {name}	项目：{name}
+	Projects need the desktop app (there is no file system here)	项目需要桌面应用（这里没有文件系统）
+	Quality:	品质：
+	Re-read the original files; layers above the bottom one are kept	重新读取原始文件；最底层之上的图层都会保留
+	Rebuild from original	从原始文件重建
+	Relink…	重新链接…
+	Remove from Project…	从项目中移除…
+	Replace existing files	替换现有文件
+	Select an album first	请先选择相册
+	Set in Edit › Color Settings › Monitor Profile	在“编辑 › 颜色设置 › 显示器配置文件”中设置
+	The files on disk are kept, and so are their edits.	磁盘上的文件及其编辑内容都会保留。
+	The photos stay where they are; the project points to them.	照片保留在原处，项目会引用它们。
+	…and {n} more	…以及另外 {n} 个
+@plural	{n} photo|{n} photos	{n} 张照片
+@plural	{n} album|{n} albums	{n} 个相册
+@plural	{n} file|{n} files	{n} 个文件
+@plural	Imported {n} photo|Imported {n} photos	已导入 {n} 张照片

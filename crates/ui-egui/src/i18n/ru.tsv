@@ -2282,3 +2282,73 @@
 	GPU	GPU
 
 	Rendering mode	Режим отрисовки
+# PhotoVision Library (projects, albums, colour management)
+	Project	Проект
+	On	Вкл.
+	Library	Библиотека
+	Albums	Альбомы
+	New Project…	Новый проект…
+	Open Project…	Открыть проект…
+	Save Project	Сохранить проект
+	Close Project	Закрыть проект
+	Project Settings…	Параметры проекта…
+	New Album…	Новый альбом…
+	Import Photos…	Импорт фотографий…
+	Export Album…	Экспорт альбома…
+	Rename Album…	Переименовать альбом…
+	Delete Album…	Удалить альбом…
+	Input color space	Входное цветовое пространство
+	Photo color space	Цветовое пространство фото
+	Output color space	Выходное цветовое пространство
+	Rendering intent	Метод рендеринга
+	Black point compensation	Компенсация точки черного
+	Add (reference in place)	Добавить (ссылка на месте)
+	Album {n}	Альбом {n}
+	Album: {name}	Альбом: {name}
+	Album:	Альбом:
+	Albums group the photos of a project.	Альбомы группируют фотографии проекта.
+	An album export is already running	Экспорт альбома уже выполняется
+	Auto (embedded profile)	Авто (встроенный профиль)
+	Color management for every photo in “{name}”. Albums and photos can override each setting.	Управление цветом для всех фотографий в «{name}». Альбомы и фотографии могут переопределять каждый параметр.
+	Copies the files next to the project, so it can move as one folder.	Копирует файлы рядом с проектом, чтобы его можно было перемещать одной папкой.
+	Copy into project folder	Копировать в папку проекта
+	Couldn't rebuild from the original	Не удалось пересоздать из оригинала
+	Create an album to start	Создайте альбом, чтобы начать
+	Delete the album “{name}” from the project?	Удалить альбом «{name}» из проекта?
+	Do you want to save the changes to the project “{name}” before closing it?	Сохранить изменения проекта «{name}» перед закрытием?
+	Do you want to save the changes to the project “{name}” before quitting?	Сохранить изменения проекта «{name}» перед выходом?
+	Each photo is flattened and converted to its Output color space.	Каждая фотография сводится и преобразуется в выходное цветовое пространство.
+	Edited	Изменено
+	File not found: {path}	Файл не найден: {path}
+	Files:	Файлы:
+	Folder:	Папка:
+	Format:	Формат:
+	Import photos, or drop image files here.	Импортируйте фотографии или перетащите сюда файлы изображений.
+	Inherit ({value})	Наследовать ({value})
+	Input → Photo → Output color space	Цветовое пространство: вход → фото → выход
+	Missing	Нет файла
+	Monitor: {profile}	Монитор: {profile}
+	New album	Новый альбом
+	No albums yet	Альбомов пока нет
+	No photos in this album yet	В этом альбоме пока нет фотографий
+	No project is open.	Нет открытого проекта.
+	Opened photo	Фотография открыта
+	Photo: {name}	Фото: {name}
+	Photos open in the Input space and are edited in the Photo space; the Output space is used for export and soft-proofed on screen.	Фотографии открываются во входном пространстве и редактируются в пространстве фото; выходное используется при экспорте и имитируется на экране.
+	Project: {name}	Проект: {name}
+	Projects need the desktop app (there is no file system here)	Для проектов нужно настольное приложение (здесь нет файловой системы)
+	Quality:	Качество:
+	Re-read the original files; layers above the bottom one are kept	Повторно читает исходные файлы; слои выше нижнего сохраняются
+	Rebuild from original	Пересоздать из оригинала
+	Relink…	Связать заново…
+	Remove from Project…	Убрать из проекта…
+	Replace existing files	Заменять существующие файлы
+	Select an album first	Сначала выберите альбом
+	Set in Edit › Color Settings › Monitor Profile	Задается в меню «Редактирование › Настройка цветов › Профиль монитора»
+	The files on disk are kept, and so are their edits.	Файлы на диске и их правки сохраняются.
+	The photos stay where they are; the project points to them.	Фотографии остаются на месте; проект ссылается на них.
+	…and {n} more	…и еще {n}
+@plural	{n} photo|{n} photos	{n} фотография|{n} фотографии|{n} фотографий
+@plural	{n} album|{n} albums	{n} альбом|{n} альбома|{n} альбомов
+@plural	{n} file|{n} files	{n} файл|{n} файла|{n} файлов
+@plural	Imported {n} photo|Imported {n} photos	Импортирована {n} фотография|Импортированы {n} фотографии|Импортировано {n} фотографий

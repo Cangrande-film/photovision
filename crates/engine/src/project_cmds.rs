@@ -3,7 +3,8 @@
 //! The data model is `photocraft_project` (pure data, JSON); this module adds the file system and
 //! the documents. One project is open at a time ([`Session::project`]). A photo opens through its
 //! resolved colour pipeline (photo over album over project settings); its edits are saved as a
-//! sidecar next to the original (`IMG_0001.jpg.pcraft`, the original is never written), and an
+//! sidecar next to the original (`IMG_0001.jpg.pvision`, the native bundle format under
+//! PhotoVision's extension; the original is never written), and an
 //! open photo remembers which photo it is ([`crate::DocState::project_photo`]), so File › Save
 //! writes the sidecar.
 //!
@@ -485,8 +486,9 @@ fn album_delete(s: &mut Session, p: &Value) -> Result<Value> {
 const MAX_IMPORT: usize = 100_000;
 
 fn importable(path: &str) -> std::result::Result<(), &'static str> {
-    if pj::is_sidecar(path) {
-        return Err("an edit sidecar, not a photo");
+    // Edits (sidecars and other native bundles), not photos.
+    if pj::is_sidecar(path) || file_cmds::extension(path).is_some_and(|x| photocraft_io::is_native_extension(&x)) {
+        return Err("sidecar");
     }
     if !file_cmds::extension(path).is_some_and(|x| file_cmds::OPENABLE.contains(&x.as_str())) {
         return Err("not an image type PhotoVision opens");
@@ -618,12 +620,18 @@ fn decode(path: &str) -> Result<(Document, Vec<String>)> {
     Ok((r.document, r.warnings))
 }
 
+/// The sidecar to read for `original`: `.pvision`, else a legacy `.pcraft` one, if either exists.
+fn existing_sidecar(original: &str) -> Option<String> {
+    [pj::sidecar_path(original), pj::legacy_sidecar_path(original)].into_iter().find(|p| fs::is_file(p))
+}
+
 fn load_photo(st: &ProjectState, photo: u64) -> Result<Loaded> {
     let original = st.photo_file(photo)?;
     let sidecar = pj::sidecar_path(&original);
-    let from_sidecar = fs::is_file(&sidecar);
-    let (mut doc, warnings) = if from_sidecar {
-        decode(&sidecar)?
+    let found = existing_sidecar(&original);
+    let from_sidecar = found.is_some();
+    let (mut doc, warnings) = if let Some(found) = &found {
+        decode(found)?
     } else if fs::is_file(&original) {
         decode(&original)?
     } else {
@@ -713,9 +721,63 @@ fn export_one(st: &ProjectState, photo: u64, out: &str, quality: Option<f64>) ->
     Ok(warnings)
 }
 
-/// Exports every photo of an album, flattened, in its resolved Output space. Runs synchronously
-/// and leaves the open documents alone (each photo is decoded on its own).
-fn album_export(s: &mut Session, p: &Value) -> Result<Value> {
+/// A validated `album.export`, detached from the session: [`ExportPlan::run`] needs no
+/// [`Session`], so a UI can run it on a worker thread while the user keeps working.
+#[derive(Clone, Debug)]
+pub struct ExportPlan {
+    state: ProjectState,
+    album: u64,
+    photos: Vec<u64>,
+    folder: String,
+    ext: &'static str,
+    overwrite: bool,
+    quality: Option<f64>,
+}
+
+impl ExportPlan {
+    /// Number of photos it will export.
+    pub fn len(&self) -> usize {
+        self.photos.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.photos.is_empty()
+    }
+
+    /// Exports every photo (the `album.export` result).
+    pub fn run(self) -> Result<Value> {
+        let st = &self.state;
+        fs::create_dir_all(&self.folder)?;
+        let mut taken: HashSet<String> = HashSet::new();
+        let mut results = Vec::with_capacity(self.photos.len());
+        let (mut exported, mut skipped, mut failed) = (0usize, 0usize, 0usize);
+        for &id in &self.photos {
+            let original = st.photo_file(id)?;
+            let name = pj::unique_name(&format!("{}.{}", pj::file_stem(&original), self.ext), |n| taken.contains(&n.to_lowercase()));
+            taken.insert(name.to_lowercase());
+            let out = pj::join(&self.folder, &name);
+            if fs::exists(&out) && !self.overwrite {
+                skipped += 1;
+                results.push(json!({"photo": id, "path": out, "status": "skipped", "reason": "file exists (pass \"overwrite\": true)"}));
+                continue;
+            }
+            match export_one(st, id, &out, self.quality) {
+                Ok(warnings) => {
+                    exported += 1;
+                    results.push(json!({"photo": id, "path": out, "status": "exported", "warnings": warnings}));
+                }
+                Err(e) => {
+                    failed += 1;
+                    results.push(json!({"photo": id, "path": out, "status": "failed", "reason": e.to_string()}));
+                }
+            }
+        }
+        Ok(json!({"album": self.album, "folder": self.folder, "exported": exported, "skipped": skipped, "failed": failed, "results": results}))
+    }
+}
+
+/// Validates `album.export` params against the open project (see [`ExportPlan`]).
+pub fn export_plan(s: &Session, p: &Value) -> Result<ExportPlan> {
     let cmd = "album.export";
     let album = id_param(p, "album", cmd)?;
     let folder = str_param(p, "folder", cmd)?.to_string();
@@ -728,59 +790,128 @@ fn album_export(s: &mut Session, p: &Value) -> Result<Value> {
     };
     let st = state(s)?;
     let photos: Vec<u64> = st.project.album(album).map_err(perr)?.photos.iter().map(|p| p.id).collect();
-    fs::create_dir_all(&folder)?;
-    let mut taken: HashSet<String> = HashSet::new();
-    let mut results = Vec::with_capacity(photos.len());
-    let (mut exported, mut skipped, mut failed) = (0usize, 0usize, 0usize);
-    for id in photos {
-        let original = st.photo_file(id)?;
-        let name = pj::unique_name(&format!("{}.{ext}", pj::file_stem(&original)), |n| taken.contains(&n.to_lowercase()));
-        taken.insert(name.to_lowercase());
-        let out = pj::join(&folder, &name);
-        if fs::exists(&out) && !overwrite {
-            skipped += 1;
-            results.push(json!({"photo": id, "path": out, "status": "skipped", "reason": "file exists (pass \"overwrite\": true)"}));
-            continue;
-        }
-        match export_one(st, id, &out, quality) {
-            Ok(warnings) => {
-                exported += 1;
-                results.push(json!({"photo": id, "path": out, "status": "exported", "warnings": warnings}));
-            }
-            Err(e) => {
-                failed += 1;
-                results.push(json!({"photo": id, "path": out, "status": "failed", "reason": e.to_string()}));
-            }
-        }
+    Ok(ExportPlan { state: st.clone(), album, photos, folder, ext, overwrite, quality })
+}
+
+/// Exports every photo of an album, flattened, in its resolved Output space. Runs synchronously
+/// and leaves the open documents alone (each photo is decoded on its own).
+fn album_export(s: &mut Session, p: &Value) -> Result<Value> {
+    export_plan(s, p)?.run()
+}
+
+// ------------------------------------------------------------------ photo.rebuild
+
+/// Re-reads an open photo's original through its resolved pipeline (a changed Input space can't
+/// be applied to pixels already decoded) and replaces the bottom layer's pixels with it, keeping
+/// every layer above. One undoable step. Refuses when the edit changed the canvas size or mode
+/// (the layers above would no longer line up) or the bottom layer is not a pixel layer.
+fn photo_rebuild(s: &mut Session, p: &Value) -> Result<Value> {
+    let cmd = "photo.rebuild";
+    let id = id_param(p, "id", cmd)?;
+    let st = state(s)?;
+    st.project.find_photo(id).map_err(perr)?;
+    let index =
+        s.photo_document(id).ok_or_else(|| EngineError::Other(format!("photo {id} is not open (photo.open applies the current settings when it opens)")))?;
+    let pipeline = st.resolved(id)?;
+    let original = st.photo_file(id)?;
+    if !fs::is_file(&original) {
+        return Err(EngineError::Other(format!("{original} is missing: relink the photo (photo.relink)")));
     }
-    Ok(json!({"album": album, "folder": folder, "exported": exported, "skipped": skipped, "failed": failed, "results": results}))
+    let (mut fresh, warnings) = decode(&original)?;
+    if !is_rgb(&fresh) {
+        return Err(EngineError::Other("colour pipelines apply to RGB photos; this original is not RGB".into()));
+    }
+    let ap = ActivePipeline::new(pipeline)?;
+    let input = cp::input_profile(&ap.pipeline.input)?;
+    cp::apply_to_document(&mut fresh, input.as_deref(), &ap)?;
+    let d = s.documents().get(index).ok_or(EngineError::NoDocument)?;
+    let doc_id = d.doc.id;
+    let (cur, new) = (d.doc.size, fresh.size);
+    if (cur.width, cur.height) != (new.width, new.height) {
+        return Err(EngineError::Other(format!(
+            "the original is {}×{} px but the open photo is {}×{} px (cropped or resized): rebuilding would misalign its layers; close it without saving and open it again",
+            new.width, new.height, cur.width, cur.height
+        )));
+    }
+    if d.doc.mode != fresh.mode {
+        return Err(EngineError::Other(format!("the open photo is {:?}, the original {:?}: convert it back to RGB first", d.doc.mode, fresh.mode)));
+    }
+    if !matches!(d.doc.layers.first().map(|l| &l.content), Some(photocraft_doc::LayerContent::Raster(_))) {
+        return Err(EngineError::Other("the bottom layer of the open photo is not a pixel layer, so there is nothing to rebuild".into()));
+    }
+    if fresh.layers.len() != 1 {
+        return Err(EngineError::Other(format!("the original has {} layers; rebuilding needs a flat original", fresh.layers.len())));
+    }
+    let Some(content) = fresh.layers.pop().map(|l| l.content) else {
+        return Err(EngineError::Other("the original has no pixels".into()));
+    };
+    let (depth, icc) = (fresh.depth, fresh.icc_profile.clone());
+    let prev = s.active_index();
+    s.set_active(index);
+    let r = s.edit("Rebuild from Original", |doc, _| {
+        if doc.depth != depth {
+            crate::image_cmds::set_depth(doc, depth);
+        }
+        doc.icc_profile = icc;
+        let bottom = doc.layers.first_mut().ok_or_else(|| EngineError::Other("the photo has no layers".into()))?;
+        bottom.content = content;
+        Ok(())
+    });
+    if let Some(i) = prev {
+        s.set_active(i);
+    }
+    r?;
+    let pipeline = ap.pipeline.clone();
+    s.color.set_pipeline(doc_id, Some(ap));
+    Ok(json!({"document": index, "photo": id, "pipeline": pipeline, "warnings": warnings}))
 }
 
 // ------------------------------------------------------------------ photo.thumbnail
 
 const RAW_EXTENSIONS: &[&str] = &["dng", "cr2", "cr3", "nef", "nrw", "arw", "pef", "orf", "raf", "rw2", "srw"];
 
+/// Bump when thumbnails render differently, so cached ones regenerate (v2: converted to sRGB).
+const THUMB_VERSION: u32 = 2;
+
 fn fnv1a(bytes: &[u8]) -> u64 {
     bytes.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ u64::from(*b)).wrapping_mul(0x0100_0000_01b3))
 }
 
-/// A small document to thumbnail: the sidecar's stored thumbnail (else the sidecar), a raw's
-/// embedded preview (else the developed raw), or the decoded file.
+/// A small document to thumbnail: the sidecar's stored thumbnail (in the sidecar's profile;
+/// else the sidecar), a raw's embedded preview (else the developed raw), or the decoded file.
 fn thumb_source(source: &str, sidecar: bool) -> Result<Document> {
     let bytes = file_cmds::read_file(source)?;
-    let small = if sidecar {
-        photocraft_format::read_thumbnail(&bytes).ok().flatten().map(|png| ("thumbnail.png", png))
-    } else if file_cmds::extension(source).is_some_and(|x| RAW_EXTENSIONS.contains(&x.as_str())) {
-        photocraft_raw::embedded_preview(&bytes).map(|pv| ("preview.jpg", pv.jpeg.to_vec()))
-    } else {
-        None
-    };
-    if let Some((name, b)) = small
-        && let Ok(r) = photocraft_io::import(name, &b)
+    if sidecar {
+        if let Some(png) = photocraft_format::read_thumbnail(&bytes).ok().flatten()
+            && let Ok(r) = photocraft_io::import("thumbnail.png", &png)
+        {
+            let mut doc = r.document;
+            // The stored thumbnail is the composite in the document's own profile (a linear
+            // ACEScg sidecar's looks dark as plain sRGB): tag it so it converts for display.
+            doc.icc_profile = photocraft_format::read_icc_profile(&bytes).ok().flatten().map(std::sync::Arc::new);
+            return Ok(doc);
+        }
+    } else if file_cmds::extension(source).is_some_and(|x| RAW_EXTENSIONS.contains(&x.as_str()))
+        && let Some(pv) = photocraft_raw::embedded_preview(&bytes)
+        && let Ok(r) = photocraft_io::import("preview.jpg", pv.jpeg)
     {
         return Ok(r.document);
     }
     photocraft_io::import(pj::file_name(source), &bytes).map(|r| r.document).map_err(|e| EngineError::Other(format!("{source}: {e}")))
+}
+
+/// The thumbnail in sRGB (what the Library grid shows and other apps assume of a PNG): the
+/// composite converted from the document's profile, so wide-gamut and linear photos look right.
+fn display_thumbnail(doc: &Document, max: u32) -> photocraft_raster::Rgba8Image {
+    let mut buf = photocraft_compose::thumbnail_buffer(doc, max);
+    let src = crate::color_cmds::composite_profile(doc);
+    let srgb = photocraft_cms::Builtin::Srgb.profile();
+    if !src.same_colors(srgb)
+        && let Ok(t) = photocraft_cms::Transform::new(&src, srgb, photocraft_cms::Intent::RelativeColorimetric, true)
+    {
+        t.apply(buf.px.as_flattened_mut(), 4);
+    }
+    buf.to_rgba8()
 }
 
 fn encode_png(img: &photocraft_raster::Rgba8Image) -> Result<Vec<u8>> {
@@ -790,6 +921,74 @@ fn encode_png(img: &photocraft_raster::Rgba8Image) -> Result<Vec<u8>> {
     photocraft_codecs::encode(&image, Format::Png, &EncodeOptions::default()).map_err(|e| EngineError::Other(format!("thumbnail: {e}")))
 }
 
+/// Where a photo's thumbnail is (or will be) cached, and how to render it. Planning is cheap
+/// (a file stat); [`ThumbPlan::render`] and [`ThumbPlan::load`] decode the photo and need no
+/// [`Session`], so a UI runs them on a worker thread.
+#[derive(Clone, Debug)]
+pub struct ThumbPlan {
+    pub photo: u64,
+    /// The cached PNG (sRGB).
+    pub path: String,
+    /// The PNG was already there when planned.
+    pub cached: bool,
+    source: String,
+    from_sidecar: bool,
+    max: u32,
+    /// The photo's Input space when it overrides the file's own profile (originals only).
+    input: Option<std::sync::Arc<photocraft_cms::Profile>>,
+}
+
+impl ThumbPlan {
+    /// Writes the PNG unless it is cached.
+    pub fn render(&self) -> Result<()> {
+        if fs::is_file(&self.path) {
+            return Ok(());
+        }
+        let mut doc = thumb_source(&self.source, self.from_sidecar)?;
+        if let Some(p) = &self.input
+            && is_rgb(&doc)
+        {
+            doc.icc_profile = Some(p.to_bytes());
+        }
+        let png = encode_png(&display_thumbnail(&doc, self.max))?;
+        if let Some(dir) = self.path.rfind(['/', '\\']).and_then(|i| self.path.get(..i)) {
+            fs::create_dir_all(dir)?;
+        }
+        file_cmds::write_file(&self.path, &png)
+    }
+
+    /// Renders the PNG if needed and decodes it (straight-alpha sRGB RGBA8).
+    pub fn load(&self) -> Result<photocraft_raster::Rgba8Image> {
+        self.render()?;
+        let bytes = file_cmds::read_file(&self.path)?;
+        let r = photocraft_io::import("thumbnail.png", &bytes).map_err(|e| EngineError::Other(format!("{}: {e}", self.path)))?;
+        let d = &r.document;
+        let longest = d.size.width.max(d.size.height).max(1);
+        Ok(photocraft_compose::thumbnail(d, longest))
+    }
+}
+
+/// Plans photo `id`'s thumbnail at most `max` pixels on its longer side (see [`ThumbPlan`]).
+pub fn thumbnail_plan(s: &Session, id: u64, max: u32) -> Result<ThumbPlan> {
+    let max = max.clamp(16, 2048);
+    let st = state(s)?;
+    let original = st.photo_file(id)?;
+    let sidecar = existing_sidecar(&original);
+    let from_sidecar = sidecar.is_some();
+    let input = match (&st.resolved(id)?.input, from_sidecar) {
+        (InputSpace::Space(sp), false) => cp::profile(sp).ok(),
+        _ => None,
+    };
+    let source = sidecar.unwrap_or(original);
+    let (mtime, size) = fs::stamp(&source).ok_or_else(|| EngineError::Other(format!("{source} is missing: relink the photo (photo.relink)")))?;
+    let input_key = input.as_ref().map_or(0, |p| p.content_hash());
+    let key = fnv1a(format!("v{THUMB_VERSION}\n{source}\n{mtime}\n{size}\n{max}\n{input_key}").as_bytes());
+    let dir = pj::thumb_cache_dir(&st.path);
+    let path = pj::join(&dir, &format!("{key:016x}.png"));
+    let cached = fs::is_file(&path);
+    Ok(ThumbPlan { photo: id, path, cached, source, from_sidecar, max, input })
+}
+
 fn photo_thumbnail(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "photo.thumbnail";
     let id = id_param(p, "id", cmd)?;
@@ -797,23 +996,9 @@ fn photo_thumbnail(s: &mut Session, p: &Value) -> Result<Value> {
         None | Some(Value::Null) => 256,
         Some(v) => v.as_f64().filter(|f| f.is_finite()).ok_or_else(|| bad(cmd, "`maxSide` must be a number"))?.clamp(16.0, 2048.0) as u32,
     };
-    let st = state(s)?;
-    let original = st.photo_file(id)?;
-    let sidecar = pj::sidecar_path(&original);
-    let from_sidecar = fs::is_file(&sidecar);
-    let source = if from_sidecar { sidecar } else { original };
-    let (mtime, size) = fs::stamp(&source).ok_or_else(|| EngineError::Other(format!("{source} is missing: relink the photo (photo.relink)")))?;
-    let key = fnv1a(format!("{source}\n{mtime}\n{size}\n{max}").as_bytes());
-    let dir = pj::thumb_cache_dir(&st.path);
-    let out = pj::join(&dir, &format!("{key:016x}.png"));
-    if fs::is_file(&out) {
-        return Ok(json!({"photo": id, "path": out, "cached": true}));
-    }
-    let doc = thumb_source(&source, from_sidecar)?;
-    let png = encode_png(&photocraft_compose::thumbnail(&doc, max))?;
-    fs::create_dir_all(&dir)?;
-    file_cmds::write_file(&out, &png)?;
-    Ok(json!({"photo": id, "path": out, "cached": false}))
+    let plan = thumbnail_plan(s, id, max)?;
+    plan.render()?;
+    Ok(json!({"photo": id, "path": plan.path, "cached": plan.cached}))
 }
 
 // ------------------------------------------------------------------ specs
@@ -893,15 +1078,23 @@ pub fn specs() -> Vec<CommandSpec> {
         spec!(
             "photo.save",
             "Save Photo",
-            r#"{} → {"path":sidecar,"photo","warnings"} (active document must be a project photo; writes <original>.pcraft)"#,
+            r#"{} → {"path":sidecar,"photo","warnings"} (active document must be a project photo; writes <original>.pvision, the native bundle format)"#,
             has_project_photo,
             photo_save,
             true
         ),
         spec!(
+            "photo.rebuild",
+            "Rebuild from Original",
+            r#"{"id":id} → {"document","photo","pipeline":{…},"warnings"} (an open photo: re-reads the original through its resolved pipeline, e.g. after an Input space change, and replaces the bottom layer's pixels, keeping the layers above; one undo step; refuses when the canvas size or mode changed)"#,
+            has_project,
+            photo_rebuild,
+            true
+        ),
+        spec!(
             "photo.thumbnail",
             "Photo Thumbnail",
-            r#"{"id":id,"maxSide":16-2048=256} → {"photo","path":png,"cached":bool}"#,
+            r#"{"id":id,"maxSide":16-2048=256} → {"photo","path":png,"cached":bool} (an sRGB PNG in the project's .pvcache)"#,
             has_project,
             photo_thumbnail,
             false

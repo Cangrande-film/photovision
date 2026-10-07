@@ -5,8 +5,9 @@ use serde_json::{Value, json};
 use crate::PhotocraftApp;
 use crate::state::{DialogKind, UiState};
 
-/// Top-level menus in Photoshop order.
-pub const TOP_MENUS: [&str; 10] = ["File", "Edit", "Image", "Layer", "Type", "Select", "Filter", "View", "Window", "Help"];
+/// Top-level menus in Photoshop order, plus PhotoVision's Project menu (projects, albums; the
+/// Library) before Help. (As a File submenu it made the File menu too tall for a 900 px window.)
+pub const TOP_MENUS: [&str; 11] = ["File", "Edit", "Image", "Layer", "Type", "Select", "Filter", "View", "Window", "Project", "Help"];
 
 /// UI-level commands (handled by the shell rather than the engine): id, label, menu, shortcut.
 pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
@@ -59,6 +60,17 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("help.reportIssue", "Report an Issue…", &["Help"], None),
     ("help.systemInfo", "System Info…", &["Help"], None),
     ("help.about", "About PhotoVision", &["Help"], None),
+    // PhotoVision projects (the Library module; `library_ui` fronts them with pickers and dialogs).
+    ("project.new", "New Project…", &["Project"], None),
+    ("project.open", "Open Project…", &["Project"], None),
+    ("project.save", "Save Project", &["Project"], None),
+    ("project.close", "Close Project", &["Project"], None),
+    ("project.settings", "Project Settings…", &["Project"], None),
+    ("album.new", "New Album…", &["Project"], None),
+    ("album.import", "Import Photos…", &["Project"], None),
+    ("album.export", "Export Album…", &["Project"], None),
+    ("album.rename", "Rename Album…", &["Project"], None),
+    ("album.delete", "Delete Album…", &["Project"], None),
 ];
 
 /// Photoshop's Window › <panel> ids for the panels the shell already has, as `window.toggle.*`.
@@ -160,6 +172,10 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
     // View/Window/Type shell items, and dialogs/pickers in front of File commands.
     // Edit › Preferences, Keyboard Shortcuts, Color Settings and other Edit dialogs.
     if let Some(r) = crate::prefs_ui::invoke(app, ctx, id, &params) {
+        return r;
+    }
+    // Project menu: pickers and dialogs in front of the project/album commands.
+    if let Some(r) = crate::library_ui::menu(app, id, &params) {
         return r;
     }
     // Save for Web, Print and the other File-menu dialogs added with slices.
@@ -453,6 +469,9 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
         return e;
     }
     if let Some(e) = crate::plugin_ui::is_enabled(app, id) {
+        return e;
+    }
+    if let Some(e) = crate::library_ui::is_enabled(app, id) {
         return e;
     }
     match id {

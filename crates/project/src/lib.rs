@@ -7,7 +7,7 @@
 //! * Photos are **referenced** in place (an absolute path) or **managed**: copied into the
 //!   project's media folder ([`media_dir`]: `MyShoot Media/<Album>/`) and stored relative to the
 //!   project file's folder with `/` separators.
-//! * Edits are saved as a sidecar next to the original ([`sidecar_path`]: `IMG_0001.jpg.pcraft`);
+//! * Edits are saved as a sidecar next to the original ([`sidecar_path`]: `IMG_0001.jpg.pvision`, the native `.pcraft` bundle format under PhotoVision's extension);
 //!   originals are never modified.
 //! * Thumbnails are cached in [`thumb_cache_dir`] (`MyShoot.pvcache/thumbs/`).
 //!
@@ -27,7 +27,9 @@ pub const FORMAT_VERSION: u32 = 1;
 /// Project file extension (without the dot).
 pub const EXTENSION: &str = "pvproj";
 /// Sidecar extension appended to the original's file name.
-pub const SIDECAR_EXTENSION: &str = "pcraft";
+pub const SIDECAR_EXTENSION: &str = "pvision";
+/// The sidecar extension of early (pre-release) projects, still read: `IMG_0001.jpg.pcraft`.
+pub const LEGACY_SIDECAR_EXTENSION: &str = "pcraft";
 /// Largest project file [`Project::from_json`] accepts.
 pub const MAX_JSON_BYTES: usize = 256 << 20;
 /// Limits that keep a hostile file from exhausting memory or the UI.
@@ -390,15 +392,22 @@ pub fn join(dir: &str, name: &str) -> String {
     }
 }
 
-/// The edit sidecar of an original: `IMG_0001.jpg` → `IMG_0001.jpg.pcraft`.
+/// The edit sidecar of an original: `IMG_0001.jpg` → `IMG_0001.jpg.pvision`.
 pub fn sidecar_path(original: &str) -> String {
     format!("{original}.{SIDECAR_EXTENSION}")
 }
 
-/// Is `path` an edit sidecar (`<name>.<ext>.pcraft`)?
+/// The legacy sidecar of an original (`IMG_0001.jpg.pcraft`), read when there is no `.pvision`.
+pub fn legacy_sidecar_path(original: &str) -> String {
+    format!("{original}.{LEGACY_SIDECAR_EXTENSION}")
+}
+
+/// Is `path` an edit sidecar (`<name>.<ext>.pvision`, or a legacy `<name>.<ext>.pcraft`)?
 pub fn is_sidecar(path: &str) -> bool {
     let n = file_name(path).to_ascii_lowercase();
-    n.strip_suffix(".pcraft").is_some_and(|base| base.rfind('.').is_some_and(|i| i > 0 && i + 1 < base.len()))
+    [SIDECAR_EXTENSION, LEGACY_SIDECAR_EXTENSION]
+        .iter()
+        .any(|ext| n.strip_suffix(ext).and_then(|b| b.strip_suffix('.')).is_some_and(|base| base.rfind('.').is_some_and(|i| i > 0 && i + 1 < base.len())))
 }
 
 /// A file-name-safe version of `name` (also avoids Windows device names).

@@ -143,7 +143,11 @@ fn malformed_project_files_are_errors() {
 
 #[test]
 fn path_helpers() {
-    assert_eq!(sidecar_path("C:/p/IMG_0001.jpg"), "C:/p/IMG_0001.jpg.pcraft");
+    assert_eq!(sidecar_path("C:/p/IMG_0001.jpg"), "C:/p/IMG_0001.jpg.pvision");
+    assert_eq!(legacy_sidecar_path("C:/p/IMG_0001.jpg"), "C:/p/IMG_0001.jpg.pcraft");
+    assert!(is_sidecar("C:/p/IMG_0001.jpg.pvision"));
+    assert!(is_sidecar("C:/p/IMG_0001.JPG.PVISION"));
+    assert!(!is_sidecar("C:/p/edit.pvision"));
     assert!(is_sidecar("C:/p/IMG_0001.jpg.pcraft"));
     assert!(!is_sidecar("C:/p/edit.pcraft"));
     assert!(!is_sidecar("C:/p/.x.pcraft"));

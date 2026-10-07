@@ -666,6 +666,12 @@ pub struct UiState {
     /// Status bar info field, Home screen (see `chrome_ui`).
     #[serde(default)]
     pub chrome: crate::chrome_ui::ChromeState,
+    /// Library or Edit while a project is open (the title bar switch; see `library_ui`).
+    #[serde(default)]
+    pub module: crate::library_ui::Module,
+    /// Library selection (album, photos, inspector level).
+    #[serde(default)]
+    pub library: crate::library_ui::LibraryUi,
 }
 
 impl Default for UiState {
@@ -718,6 +724,8 @@ impl Default for UiState {
             notices: Vec::new(),
             gpu_fallback_notice: None,
             chrome: Default::default(),
+            module: Default::default(),
+            library: Default::default(),
         }
     }
 }
