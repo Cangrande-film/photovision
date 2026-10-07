@@ -685,9 +685,9 @@
 	Timeline	時間軸
 	Tool Presets	工具預設集
 	Tools	工具
-	About PhotoCraft	關於 PhotoCraft
-	PhotoCraft Website	PhotoCraft 網站
-	PhotoCraft on GitHub	GitHub 上的 PhotoCraft
+	About PhotoVision	關於 PhotoVision
+	PhotoVision Website	PhotoVision 網站
+	PhotoVision on GitHub	GitHub 上的 PhotoVision
 	ArtCraft Website	ArtCraft 網站
 	Join the ArtCraft Discord…	加入 ArtCraft Discord…
 	Report an Issue…	回報問題…
@@ -1205,9 +1205,9 @@
 	Perspective Warp is not active	透視彎曲未啟用
 	Perspective Warp: draw planes along the image's perspective, then switch to Warp	透視彎曲：沿影像透視繪製平面，然後切換到彎曲
 	Photo Filter	相片濾鏡
-	PhotoCraft	PhotoCraft
-	PhotoCraft Manages Colors	PhotoCraft 管理色彩
-	PhotoCraft — an open-source, native image editor written in Rust.	PhotoCraft — 以 Rust 撰寫的開放原始碼原生影像編輯器。
+	PhotoVision	PhotoVision
+	PhotoVision Manages Colors	PhotoVision 管理色彩
+	PhotoVision — an open-source, native image editor written in Rust.	PhotoVision — 以 Rust 撰寫的開放原始碼原生影像編輯器。
 	Pin Depth:	圖釘深度：
 	Pixel Length:	像素長度：
 	Pixels/Centimeter	像素/公分
@@ -1588,7 +1588,7 @@
 	Pen Tilt	筆傾斜
 	Pen Tool	筆型工具
 	Photo	相片
-	PhotoCraft website	PhotoCraft 網站
+	PhotoVision website	PhotoVision 網站
 	Picas	派卡
 	Pillow Emboss	枕狀浮雕
 	Pixel Replacement	像素取代
@@ -1896,7 +1896,7 @@
 	System Info…	系統資訊…
 	System Info	系統資訊
 	More panels	更多面板
-	These settings aren't available in PhotoCraft yet.	這些設定在 PhotoCraft 中尚未提供。
+	These settings aren't available in PhotoVision yet.	這些設定在 PhotoVision 中尚未提供。
 	Graphics	圖形
 	Reset GPU Backend	重設 GPU 後端
 	Applies at next launch.	下次啟動時套用。
@@ -1987,7 +1987,7 @@
 	Automatic uses GPU acceleration when available and falls back to CPU rendering on errors.	自動模式會在可用時使用 GPU 加速，發生錯誤時改用 CPU 渲染。
 	Switched to CPU rendering	已改用 CPU 渲染
 	GPU acceleration could not continue. Your documents are unchanged.	GPU 加速無法繼續。您的文件未變更。
-	PhotoCraft is using the CPU image compositor. The window may still use your graphics adapter.	PhotoCraft 正使用 CPU 合成影像。視窗仍可能使用您的顯示卡。
+	PhotoVision is using the CPU image compositor. The window may still use your graphics adapter.	PhotoVision 正使用 CPU 合成影像。視窗仍可能使用您的顯示卡。
 	Retry GPU requires a restart. Save your work first.	重試 GPU 需要重新啟動。請先儲存您的工作。
 	Keep Using CPU	繼續使用 CPU
 	Retry GPU	重試 GPU
