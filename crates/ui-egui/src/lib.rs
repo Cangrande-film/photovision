@@ -72,6 +72,7 @@ pub mod mask_thumbs_ui;
 pub mod menu_catalog;
 pub mod menu_nav;
 pub mod menus;
+pub mod monitor_follow;
 pub mod move_mods;
 pub mod move_ui;
 pub mod new_doc_ui;
@@ -236,6 +237,9 @@ pub struct Services {
     /// `photocraft_engine::preset_store`). Attached to the session once it arrives; without
     /// one, brush presets are session-only (web, tests).
     pub preset_store: Option<std::sync::mpsc::Receiver<photocraft_engine::preset_store::Opened>>,
+    /// The ICC profile of the display under a screen point, queried in the background when the
+    /// window settles after a move (see `monitor_follow`). `None` on the web.
+    pub detect_monitor_profile: Option<monitor_follow::DetectMonitorFn>,
 }
 
 pub struct PhotocraftApp {
@@ -317,6 +321,8 @@ pub struct PhotocraftApp {
     pub(crate) transform_preview: Option<transform_tool::TransformPreview>,
     /// Move-tool ⇧/⌥ drag state (move_mods).
     pub(crate) move_mods: move_mods::MoveDrag,
+    /// The monitor profile following the window between displays (monitor_follow).
+    pub(crate) monitor_follow: monitor_follow::MonitorFollow,
     /// Live Layer Style dialog preview: (key over revision + style fields, document with the style applied).
     pub(crate) style_preview: Option<(u64, Option<std::sync::Arc<Document>>)>,
     /// Liquify dialog, Puppet Warp and Perspective Warp sessions (distort_ui).
@@ -430,6 +436,7 @@ impl PhotocraftApp {
             clip_read_for_paste: false,
             transform_preview: None,
             move_mods: Default::default(),
+            monitor_follow: Default::default(),
             style_preview: None,
             distort: Default::default(),
             gradient: Default::default(),
@@ -850,6 +857,7 @@ impl eframe::App for PhotocraftApp {
         self.collect_screenshots(ctx);
         self.issue_screenshots(ctx);
         prefs_ui::tick(self, ctx);
+        monitor_follow::tick(self, ctx);
         // A window bigger than its display (1440 × 900 on 1366 × 768) runs under the taskbar:
         // maximize it into the work area once (#315).
         work_area::fit_window(ctx);

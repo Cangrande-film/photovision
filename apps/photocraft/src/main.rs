@@ -137,8 +137,9 @@ fn main() -> eframe::Result {
     #[cfg(target_os = "macos")]
     let _tablet = tablet::install_macos(&stylus_feed);
 
-    // Read the main display's ICC profile while the window opens (colour-managed canvas).
-    let monitor = monitor_profile::detect_async();
+    // Read the main display's ICC profile while the window opens (colour-managed canvas); once
+    // the window is up, the profile follows it between displays (`monitor_follow`).
+    let monitor = monitor_profile::detect_async(None);
     // Brush presets load in the background; the app attaches them when they arrive.
     let presets = services::presets_dir().map(photocraft_engine::preset_store::open_dir_async);
     let mut options = native_options();
@@ -184,6 +185,7 @@ fn main() -> eframe::Result {
             let automation = control.as_ref().map(|(_, _, workspace)| workspace.clone());
             let mut services = services::native(automation);
             services.preset_store = presets;
+            services.detect_monitor_profile = monitor_profile::follow_hook();
             let mut app = PhotocraftApp::new(Session::new(), services);
             app.integrated_titlebar = cfg!(target_os = "macos");
             // Long commands and file opens run as background jobs with progress and Cancel (#210).

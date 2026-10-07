@@ -3395,6 +3395,7 @@ dependencies = [
  "log",
  "open",
  "photocraft-automation",
+ "photocraft-cms",
  "photocraft-codecs",
  "photocraft-color",
  "photocraft-compose",
