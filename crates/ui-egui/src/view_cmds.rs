@@ -980,9 +980,10 @@ fn save_a_copy(app: &mut PhotocraftApp) -> Result<Value, String> {
     let stem = st.doc.name.rsplit_once('.').map_or(st.doc.name.as_str(), |(a, _)| a).to_string();
     let suggested = format!("{stem} copy.psd");
     let path = app.services.pick_save.as_mut().and_then(|f| f(&suggested)).ok_or("cancelled")?;
-    let export = app.services.export.as_ref().ok_or("no exporter configured")?;
     let doc = app.session.active().ok_or("no document")?.doc.clone();
-    let (bytes, warnings) = export(&doc, &path, &crate::ExportSettings::default())?;
+    let settings = app.active_export_settings();
+    let export = app.services.export.as_ref().ok_or("no exporter configured")?;
+    let (bytes, warnings) = export(&doc, &path, &settings)?;
     let write = app.services.write.as_mut().ok_or("no writer configured")?;
     write(&path, &bytes)?;
     app.ui.status = format!("Saved a copy as {path}");

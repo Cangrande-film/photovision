@@ -209,6 +209,7 @@ fn params_contain_ambient_path(id: &str, params: &Value) -> bool {
         "layer.quickExportAsPng" | "layer.exportAs" => &["path"],
         "edit.assignProfile" | "edit.convertToProfile" | "edit.profileInfo" | "view.proofSetup" | "view.gamutWarning" => &["profile"],
         "edit.colorSettings" => &["workingRgb", "workingCmyk", "workingGray"],
+        "color.setPipeline" => &["input", "working", "output"],
         _ => &[],
     };
     keys.iter().any(|key| {
@@ -425,5 +426,11 @@ mod tests {
         assert!(authorize_engine_command("filter.distort.displace", &serde_json::json!({"mapPath": "outside.png"})).is_err());
         assert!(authorize_engine_command("layer.setAdjustment", &serde_json::json!({"file": "outside.cube"})).is_err());
         assert!(authorize_engine_command("prefs.set", &serde_json::json!({"path": "colorSettings.workingRgb", "value": "outside.icc"})).is_err());
+        // Colour pipelines: built-in spaces are fine, `icc:<path>` spaces read ambient files.
+        assert!(authorize_engine_command("color.setPipeline", &serde_json::json!({"working": "acescg", "output": "srgb"})).is_ok());
+        assert!(authorize_engine_command("color.pipeline", &serde_json::json!({})).is_ok());
+        for key in ["input", "working", "output"] {
+            assert!(authorize_engine_command("color.setPipeline", &serde_json::json!({key: "icc:/outside/x.icc"})).is_err(), "{key}");
+        }
     }
 }

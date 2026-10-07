@@ -102,6 +102,27 @@ pub struct ExportOptions {
     pub encode: EncodeOptions,
     /// Write PSB even for `.psd` names when the document is small.
     pub force_psb: bool,
+    /// Output colour space for flat formats: RGB pixels are converted from the document's
+    /// profile to it and the file is tagged with it (when the format embeds ICC profiles).
+    /// `None` keeps the document's own profile. Layered saves (PSD/PSB, `.pcraft`) ignore it:
+    /// they are the edit master and stay in the document's (working) space.
+    pub target: Option<ExportTarget>,
+}
+
+/// Where an export's colours go (see [`ExportOptions::target`]).
+#[derive(Debug, Clone)]
+pub struct ExportTarget {
+    /// Destination profile (RGB; other colour spaces are ignored with a warning).
+    pub profile: std::sync::Arc<photocraft_cms::Profile>,
+    pub intent: photocraft_cms::Intent,
+    /// Black point compensation.
+    pub bpc: bool,
+}
+
+impl PartialEq for ExportTarget {
+    fn eq(&self, other: &Self) -> bool {
+        self.profile.content_hash() == other.profile.content_hash() && self.intent == other.intent && self.bpc == other.bpc
+    }
 }
 
 /// `true` if `bytes` start with the PSD/PSB signature.

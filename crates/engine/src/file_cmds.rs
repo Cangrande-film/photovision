@@ -164,7 +164,12 @@ pub(crate) fn import(name: &str, bytes: &[u8]) -> Result<Document> {
 
 /// Encodes `doc` for `path`'s extension. `quality` is Photoshop's 0–12 JPEG scale.
 pub(crate) fn encode(doc: &Document, path: &str, quality: Option<f64>) -> Result<(Vec<u8>, Vec<String>)> {
-    let mut opts = photocraft_io::ExportOptions::default();
+    encode_to(doc, path, quality, None)
+}
+
+/// [`encode`] with a colour pipeline's output space for flat formats (layered formats ignore it).
+pub(crate) fn encode_to(doc: &Document, path: &str, quality: Option<f64>, target: Option<photocraft_io::ExportTarget>) -> Result<(Vec<u8>, Vec<String>)> {
+    let mut opts = photocraft_io::ExportOptions { target, ..Default::default() };
     if let Some(q) = quality {
         opts.encode.jpeg_quality = (q.clamp(0.0, 12.0) / 12.0 * 99.0 + 1.0).round() as u8;
     }
@@ -260,6 +265,7 @@ fn revert(s: &mut Session) -> Result<Value> {
 fn save_a_copy(s: &mut Session, p: &Value) -> Result<Value> {
     let path = str_param(p, "path", "file.saveACopy")?.to_string();
     let d = s.active().ok_or(EngineError::NoDocument)?;
+    let target = s.active_index().and_then(|i| s.export_target(i));
     let mut doc = (*d.doc).clone();
     if p.get("layers").and_then(Value::as_bool) == Some(false) {
         // "Layers" unchecked in Save a Copy: write the flattened image.
@@ -267,12 +273,26 @@ fn save_a_copy(s: &mut Session, p: &Value) -> Result<Value> {
         let px = flattened(&doc, fmt);
         doc.layers = vec![Layer::new("Background", LayerContent::Raster(px))];
     }
-    let warnings = save_doc(&doc, &path, f64_param(p, "quality"))?;
+    let (bytes, warnings) = encode_to(&doc, &path, f64_param(p, "quality"), target)?;
+    write_file(&path, &bytes)?;
     Ok(json!({"path": path, "warnings": warnings}))
 }
 
 /// Open a file's bytes, decoding them as the format `as_ext` (Open As) when given.
 pub fn open_bytes_as(s: &mut Session, name: &str, bytes: &[u8], as_ext: Option<&str>, path: Option<String>) -> Result<Value> {
+    open_bytes_with(s, name, bytes, as_ext, path, None)
+}
+
+/// [`open_bytes_as`] through a colour pipeline (Input → Working → Output) when given, instead
+/// of the Color Settings policy (see [`Session::open_document_with_pipeline`]).
+pub fn open_bytes_with(
+    s: &mut Session,
+    name: &str,
+    bytes: &[u8],
+    as_ext: Option<&str>,
+    path: Option<String>,
+    pipeline: Option<&crate::color_pipeline::ColorPipeline>,
+) -> Result<Value> {
     let decode_name = match as_ext {
         Some(ext) => format!("{}.{}", stem(name), ext.trim_start_matches('.')),
         None => name.to_string(),
@@ -280,8 +300,11 @@ pub fn open_bytes_as(s: &mut Session, name: &str, bytes: &[u8], as_ext: Option<&
     let r = photocraft_io::import(&decode_name, bytes).map_err(|e| EngineError::Other(format!("{decode_name}: {e}")))?;
     let mut doc = r.document;
     doc.name = file_name(name);
-    // Color Settings policies (preserve / convert / discard the embedded profile).
-    let (i, color) = s.open_document(doc, path);
+    // Color Settings policies (preserve / convert / discard the embedded profile), or the pipeline.
+    let (i, color) = match pipeline {
+        Some(pl) => s.open_document_with_pipeline(doc, path, pl)?,
+        None => s.open_document(doc, path),
+    };
     // Import notes (e.g. how a camera raw was developed, or that only its preview opened).
     Ok(json!({"document": i, "color": color, "warnings": r.warnings}))
 }
@@ -290,7 +313,15 @@ fn open_as(s: &mut Session, p: &Value) -> Result<Value> {
     let path = str_param(p, "path", "file.openAs")?.to_string();
     let bytes = read_file(&path)?;
     let as_ext = p.get("as").or_else(|| p.get("format")).and_then(Value::as_str);
-    open_bytes_as(s, &path, &bytes, as_ext, Some(path.clone()))
+    let pipeline = match p.get("colorPipeline") {
+        None | Some(Value::Null) => None,
+        Some(v) => {
+            let o = crate::color_pipeline::ColorOverride::from_params(v)
+                .map_err(|msg| EngineError::BadParams { cmd: "file.openAs".into(), msg: format!("colorPipeline: {msg}") })?;
+            Some(crate::color_pipeline::resolve(&[&o], &Default::default()))
+        }
+    };
+    open_bytes_with(s, &path, &bytes, as_ext, Some(path.clone()), pipeline.as_ref())
 }
 
 // ---------- place ----------
@@ -1057,7 +1088,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Open As…",
             &["File"],
             Some("Cmd+Alt+Shift+O"),
-            r##"{"path":str,"as":"psd|png|jpg|tiff|…"? (decode as this format)}"##,
+            r##"{"path":str,"as":"psd|png|jpg|tiff|…"? (decode as this format),"colorPipeline":{"input":"auto|<space>","working":"<space>","output":"<space>","intent":str,"bpc":bool}? (open through a colour pipeline instead of the Color Settings policy; see color.setPipeline)}"##,
             native,
             open_as
         ),

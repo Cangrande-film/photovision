@@ -943,6 +943,7 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::smartselect_cmds::specs());
     v.extend(crate::edit_cmds::specs());
     v.extend(crate::color_cmds::specs());
+    v.extend(crate::color_pipeline::specs());
     v.extend(crate::brush_cmds::specs());
     v.extend(crate::brush_preset_cmds::specs());
     v.extend(crate::eraser_cmds::specs());

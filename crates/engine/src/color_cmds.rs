@@ -64,7 +64,7 @@ pub struct ProofView {
     pub gamut_threshold: f32,
 }
 
-type DisplayKey = (u64, u64, Option<(u64, Intent, bool, bool)>);
+type DisplayKey = (u64, u64, Option<(u64, Intent, bool, bool)>, Option<(u64, Intent, bool)>);
 
 /// Colour management policy for documents whose embedded profile differs from the working
 /// space (Edit › Color Settings).
@@ -206,6 +206,8 @@ pub struct ColorState {
     pub(crate) display: crate::display_color::DisplayCaches,
     /// View › 32-bit Preview Options per document.
     pub hdr: HashMap<DocId, crate::proof_sim::HdrPreview>,
+    /// Colour pipelines (Input → Working → Output) of documents opened through one.
+    pipelines: HashMap<DocId, crate::color_pipeline::ActivePipeline>,
 }
 
 impl ColorState {
@@ -278,6 +280,41 @@ impl ColorState {
         }
     }
 
+    /// The colour pipeline of a document, when it has one.
+    pub fn pipeline(&self, doc: DocId) -> Option<&crate::color_pipeline::ActivePipeline> {
+        self.pipelines.get(&doc)
+    }
+
+    /// Sets (or with `None` drops) a document's colour pipeline. The canvas display follows on
+    /// the next frame (its caches are keyed by the output profile).
+    pub fn set_pipeline(&mut self, doc: DocId, p: Option<crate::color_pipeline::ActivePipeline>) {
+        match p {
+            Some(p) => self.pipelines.insert(doc, p),
+            None => self.pipelines.remove(&doc),
+        };
+    }
+
+    /// The pipeline output the canvas soft-proofs through for `doc`: `(profile, intent, bpc)`
+    /// when `doc` is RGB, has a pipeline, and its output differs from the document's profile.
+    /// View › Proof Colors takes precedence over it (see [`ColorState::display_transform`]).
+    pub fn display_output(&self, doc: &Document) -> Option<(Arc<Profile>, Intent, bool)> {
+        let ap = self.pipelines.get(&doc.id)?;
+        if mode_space(doc.mode) != ColorSpace::Rgb || document_profile(doc).same_colors(&ap.output) {
+            return None;
+        }
+        Some((ap.output.clone(), ap.pipeline.intent, ap.pipeline.bpc))
+    }
+
+    /// Canvas source → monitor without Proof Colors: through the pipeline output when there is
+    /// one ([`ColorState::display_output`]), else straight to the monitor.
+    pub(crate) fn plain_display_transform(&self, doc: &Document, src: &Profile, monitor: &Profile) -> Result<Transform> {
+        match self.display_output(doc) {
+            Some((out, intent, bpc)) => Transform::proof(src, &out, monitor, intent, bpc, false),
+            None => Transform::new(src, monitor, crate::display_color::DISPLAY_INTENT, crate::display_color::DISPLAY_BPC),
+        }
+        .map_err(cms_err)
+    }
+
     /// Proofing state of a document (defaults: coated CMYK, relative colorimetric + BPC, off).
     pub fn proof(&self, doc: DocId) -> ProofView {
         self.proofs.get(&doc).cloned().unwrap_or_else(|| ProofView { gamut_threshold: photocraft_cms::gamut::DEFAULT_THRESHOLD, ..Default::default() })
@@ -293,23 +330,24 @@ impl ColorState {
     }
 
     /// Transform from the canvas texture values (the composite, `CanvasDisplay::source`) to
-    /// the monitor, including the soft proof when View › Proof Colors is on. Cached per
-    /// profile pair and proof settings.
+    /// the monitor, including the soft proof when View › Proof Colors is on, else the colour
+    /// pipeline's output space when the document has one (Proof Colors wins: the user's proof
+    /// setup replaces the pipeline output while it is on). Cached per profiles and settings.
     pub fn display_transform(&self, doc: &Document) -> Result<Arc<Transform>> {
         let src = self.canvas_display(doc)?.source.clone();
         let dst = self.monitor();
         let pv = self.proof(doc.id);
         let proof = pv.enabled.then(|| (pv.setup.profile.content_hash(), pv.setup.intent, pv.setup.bpc, pv.setup.simulate_paper));
-        let key = (src.content_hash(), dst.content_hash(), proof);
+        let output = if pv.enabled { None } else { self.display_output(doc).map(|(p, i, b)| (p.content_hash(), i, b)) };
+        let key = (src.content_hash(), dst.content_hash(), proof, output);
         if let Some(t) = self.display_cache.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
             return Ok(t.clone());
         }
         let t = if pv.enabled {
-            Transform::proof(&src, &pv.setup.profile, &dst, pv.setup.intent, pv.setup.bpc, pv.setup.simulate_paper)
+            Transform::proof(&src, &pv.setup.profile, &dst, pv.setup.intent, pv.setup.bpc, pv.setup.simulate_paper).map_err(cms_err)?
         } else {
-            Transform::new(&src, &dst, crate::display_color::DISPLAY_INTENT, crate::display_color::DISPLAY_BPC)
-        }
-        .map_err(cms_err)?;
+            self.plain_display_transform(doc, &src, &dst)?
+        };
         let t = Arc::new(t);
         let mut c = self.display_cache.lock().unwrap_or_else(|e| e.into_inner());
         if c.len() > 32 {

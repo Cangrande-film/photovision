@@ -142,6 +142,9 @@ pub type ImportFn = Box<dyn Fn(&str, &[u8]) -> Result<(Document, Vec<String>), S
 pub struct ExportSettings {
     /// JPEG quality 1–100 (None = codec default).
     pub jpeg_quality: Option<u8>,
+    /// The document's colour pipeline output space (flat formats are converted to it and tagged;
+    /// layered formats ignore it). See `photocraft_io::ExportOptions::target`.
+    pub color_target: Option<photocraft_engine::color_pipeline::ExportTarget>,
 }
 
 /// Encode a document: (file bytes, warnings about anything approximated or dropped).
@@ -698,6 +701,11 @@ impl PhotocraftApp {
         }
     }
 
+    /// Export settings for the active document: its colour pipeline's output space, if any.
+    pub(crate) fn active_export_settings(&self) -> ExportSettings {
+        ExportSettings { color_target: self.session.active_index().and_then(|i| self.session.export_target(i)), ..Default::default() }
+    }
+
     /// Save the active document to `path` (or a path chosen in the save dialog); returns the path
     /// and the export warnings (also shown to the user).
     pub fn save_as(&mut self, path: Option<String>) -> Result<(String, Vec<String>), String> {
@@ -713,8 +721,10 @@ impl PhotocraftApp {
             Some(p) => p,
             None => self.services.pick_save.as_mut().and_then(|f| f(&suggested)).ok_or("cancelled")?,
         };
+        let settings = self.active_export_settings();
+        let st = self.session.active().ok_or("no document")?;
         let export = self.services.export.as_ref().ok_or("no exporter configured")?;
-        let (bytes, warnings) = export(&st.doc, &path, &ExportSettings::default())?;
+        let (bytes, warnings) = export(&st.doc, &path, &settings)?;
         let write = self.services.write.as_mut().ok_or("no writer configured")?;
         write(&path, &bytes)?;
         if let Some(st) = self.session.active_mut() {
@@ -743,8 +753,10 @@ impl PhotocraftApp {
         let target = path
             .or_else(|| state.path.clone().filter(|p| photocraft_engine::file_cmds::saves_in_place(p)))
             .ok_or("pass `path`: a save without one writes back only to the document's own PSD, PSB or .pcraft file")?;
+        let settings = self.active_export_settings();
+        let state = self.session.active().ok_or("no document")?;
         let export = self.services.export.as_ref().ok_or("no exporter configured")?;
-        let (bytes, warnings) = export(&state.doc, &target, &ExportSettings::default())?;
+        let (bytes, warnings) = export(&state.doc, &target, &settings)?;
         let write = self.services.automation_write.as_mut().ok_or("automation write authority is not configured")?;
         write(&target, &bytes)?;
         if let Some(state) = self.session.active_mut() {

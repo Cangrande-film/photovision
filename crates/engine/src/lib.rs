@@ -19,6 +19,7 @@ pub mod build_info;
 mod canvas_geom;
 pub mod channel_cmds;
 pub mod color_cmds;
+pub mod color_pipeline;
 pub mod commands;
 pub mod comps_cmds;
 pub mod display_color;
@@ -332,6 +333,7 @@ impl Session {
         smart_cmds::on_close(self, index);
         if let Some(id) = self.docs.get(index).map(|d| d.doc.id) {
             self.cancel_jobs_on(id);
+            self.color.set_pipeline(id, None);
         }
         let d = self.docs.remove(index);
         self.active = if self.docs.is_empty() { None } else { Some(index.min(self.docs.len() - 1)) };
