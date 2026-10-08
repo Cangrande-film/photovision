@@ -206,7 +206,7 @@ pub struct Interface {
     /// Document border in standard screen mode.
     pub canvas_border: CanvasBorder,
     pub ui_scale: UiScale,
-    /// UI language: `auto` (follow the system) or a language code such as `en`, `ja`. The list of
+    /// UI language: `auto` (follow the system) or a language code such as `en`, `ja`; defaults to `en`. The list of
     /// languages belongs to the shell (`ui-egui` i18n); an unknown code falls back to `auto`.
     /// Command ids and the control protocol stay English.
     pub language: String,
@@ -226,7 +226,7 @@ impl Default for Interface {
             canvas_custom_color: "#282828".into(),
             canvas_border: CanvasBorder::DropShadow,
             ui_scale: UiScale::Auto,
-            language: "auto".into(),
+            language: "en".into(),
             ui_font_size: UiFontSize::Small,
             show_channels_in_color: false,
             dynamic_color_sliders: true,
