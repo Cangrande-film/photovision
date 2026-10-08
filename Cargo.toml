@@ -71,6 +71,16 @@ opt-level = 1
 lto = "thin"
 codegen-units = 1
 
+# Quick local test builds: release-level optimisation without cross-crate LTO, with parallel
+# codegen and incremental compilation, so a small change rebuilds in minutes instead of tens of
+# minutes. The app runs a little slower than `release`; ship and benchmark with `release`.
+# `cargo build --profile fast-release -p photocraft` → target/fast-release/photocraft(.exe)
+[profile.fast-release]
+inherits = "release"
+lto = false
+codegen-units = 16
+incremental = true
+
 # The browser build (apps/photocraft-web, `data-cargo-profile` in its index.html). Hosts cap the
 # size of a single file (Cloudflare Pages/Workers: 25 MiB), and the wasm is downloaded on every
 # visit, so this profile optimizes for size: fat LTO, and opt-level "s" for everything except the

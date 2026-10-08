@@ -9,6 +9,7 @@
 
 ```sh
 cargo run --release -p photocraft -- path/to/image.psd      # desktop app
+cargo run --profile fast-release -p photocraft             # quick local test build (no LTO, incremental)
 cargo run --release -p photocraft -- --control 7878 --control-token-file .private/control.token \
   --automation-read-root work --automation-write-root work
 cargo test --workspace                                     # everything
