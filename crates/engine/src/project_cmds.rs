@@ -11,7 +11,7 @@
 //! File-system commands are unavailable on the web (their `enabled` predicates say so and the
 //! file helpers return an error there).
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use photocraft_cms::ColorSpace;
 use photocraft_doc::Document;
@@ -19,6 +19,7 @@ use photocraft_project::{self as pj, Added, Level, Project};
 use serde_json::{Value, json};
 
 use crate::color_cmds::mode_space;
+use crate::album_look::{self, AlbumLook};
 use crate::color_pipeline::{self as cp, ActivePipeline, ColorOverride, ColorPipeline, InputSpace};
 use crate::commands::CommandSpec;
 use crate::file_cmds::{self, native};
@@ -32,9 +33,17 @@ pub struct ProjectState {
     pub path: String,
     /// Changed since it was last saved.
     pub dirty: bool,
+    /// Album looks by album id, loaded on `project.open` and written on `project.save` and
+    /// `photo.save` (see [`crate::album_look`]). An album without an entry has an empty look.
+    pub looks: BTreeMap<u64, AlbumLook>,
 }
 
 impl ProjectState {
+    /// A project state that is not dirty and has no album looks loaded yet.
+    pub fn new(project: Project, path: String) -> ProjectState {
+        ProjectState { project, path, dirty: false, looks: BTreeMap::new() }
+    }
+
     /// The file a photo refers to (managed paths resolved against the project folder).
     pub fn photo_file(&self, photo: u64) -> Result<String> {
         let (_, p) = self.project.find_photo(photo).map_err(perr)?;
@@ -70,6 +79,7 @@ impl Session {
         for d in self.docs.iter_mut() {
             if d.project_photo.is_some_and(|id| !keep.contains(&id)) {
                 d.project_photo = None;
+                d.album_look = None;
             }
         }
     }
@@ -77,11 +87,11 @@ impl Session {
 
 // ------------------------------------------------------------------ helpers
 
-fn perr(e: pj::ProjectError) -> EngineError {
+pub(crate) fn perr(e: pj::ProjectError) -> EngineError {
     EngineError::Other(e.to_string())
 }
 
-fn bad(cmd: &str, msg: impl Into<String>) -> EngineError {
+pub(crate) fn bad(cmd: &str, msg: impl Into<String>) -> EngineError {
     EngineError::BadParams { cmd: cmd.into(), msg: msg.into() }
 }
 
@@ -89,15 +99,15 @@ fn no_project() -> EngineError {
     EngineError::Other("no project open (project.new or project.open)".into())
 }
 
-fn state(s: &Session) -> Result<&ProjectState> {
+pub(crate) fn state(s: &Session) -> Result<&ProjectState> {
     s.project.as_ref().ok_or_else(no_project)
 }
 
-fn state_mut(s: &mut Session) -> Result<&mut ProjectState> {
+pub(crate) fn state_mut(s: &mut Session) -> Result<&mut ProjectState> {
     s.project.as_mut().ok_or_else(no_project)
 }
 
-fn id_param(p: &Value, key: &str, cmd: &str) -> Result<u64> {
+pub(crate) fn id_param(p: &Value, key: &str, cmd: &str) -> Result<u64> {
     match p.get(key) {
         Some(v) => v
             .as_u64()
@@ -124,14 +134,14 @@ fn bool_param(p: &Value, key: &str, cmd: &str) -> Result<bool> {
     }
 }
 
-fn is_rgb(doc: &Document) -> bool {
+pub(crate) fn is_rgb(doc: &Document) -> bool {
     mode_space(doc.mode) == ColorSpace::Rgb
 }
 
 // ------------------------------------------------------------------ file system (native only)
 
 #[cfg(not(target_arch = "wasm32"))]
-mod fs {
+pub(crate) mod fs {
     use crate::{EngineError, Result};
     use std::path::Path;
 
@@ -166,10 +176,16 @@ mod fs {
     pub fn now_secs() -> Option<u64> {
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_secs())
     }
+    pub fn remove_file(p: &str) -> Result<()> {
+        match std::fs::remove_file(p) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(EngineError::Other(format!("cannot delete {p}: {e}"))),
+            _ => Ok(()),
+        }
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
-mod fs {
+pub(crate) mod fs {
     use crate::{EngineError, Result};
 
     fn web(p: &str) -> EngineError {
@@ -199,6 +215,9 @@ mod fs {
     pub fn now_secs() -> Option<u64> {
         None
     }
+    pub fn remove_file(p: &str) -> Result<()> {
+        Err(web(p))
+    }
 }
 
 fn read_project(path: &str) -> Result<Project> {
@@ -217,7 +236,7 @@ fn write_project(st: &ProjectState) -> Result<()> {
 
 // ------------------------------------------------------------------ predicates
 
-fn has_project(s: &Session) -> std::result::Result<(), String> {
+pub(crate) fn has_project(s: &Session) -> std::result::Result<(), String> {
     native(s)?;
     s.project.as_ref().map(|_| ()).ok_or_else(|| "no project open".into())
 }
@@ -245,6 +264,7 @@ fn photo_json(st: &ProjectState, s: &Session, a: &pj::Album, p: &pj::Photo) -> V
         "color": p.color,
         "resolvedColor": resolved,
         "sidecar": sidecar,
+        "albumLook": p.album_look,
         "hasSidecar": fs::is_file(&sidecar),
         "exists": fs::is_file(&file),
         "document": s.photo_document(p.id),
@@ -265,6 +285,7 @@ fn info_json(s: &Session) -> Result<Value> {
                 "color": a.color,
                 "resolvedColor": st.project.resolve_level(Level::Album(a.id), &base).ok(),
                 "mediaDir": pj::media_dir(&st.path, &a.name),
+                "look": album_look::summary(st, a),
                 "photos": a.photos.iter().map(|p| photo_json(st, s, a, p)).collect::<Vec<_>>(),
             })
         })
@@ -319,7 +340,7 @@ fn project_new(s: &mut Session, p: &Value) -> Result<Value> {
         Some(Value::String(n)) => n.clone(),
         Some(v) => return Err(bad(cmd, format!("`name` must be a string, got {v}"))),
     };
-    let st = ProjectState { project: Project::new(&name), path, dirty: false };
+    let st = ProjectState::new(Project::new(&name), path);
     write_project(&st)?;
     set_project(s, st);
     info_json(s)
@@ -330,12 +351,17 @@ fn project_open(s: &mut Session, p: &Value) -> Result<Value> {
     let path = fs::absolute(str_param(p, "path", cmd)?);
     check_discard(s, p, cmd)?;
     let project = read_project(&path)?;
-    set_project(s, ProjectState { project, path, dirty: false });
-    info_json(s)
+    let mut st = ProjectState::new(project, path);
+    let warnings = album_look::load_all(&mut st);
+    set_project(s, st);
+    let mut info = info_json(s)?;
+    info["lookWarnings"] = json!(warnings);
+    Ok(info)
 }
 
 fn project_save(s: &mut Session, _: &Value) -> Result<Value> {
     let st = state_mut(s)?;
+    album_look::write_looks(st, None)?;
     write_project(st)?;
     st.dirty = false;
     Ok(json!({"path": st.path}))
@@ -450,6 +476,7 @@ fn clear_open(s: &mut Session, photos: &[u64]) {
     for d in s.docs.iter_mut() {
         if d.project_photo.is_some_and(|id| photos.contains(&id)) {
             d.project_photo = None;
+            d.album_look = None;
         }
     }
 }
@@ -469,6 +496,8 @@ fn album_rename(s: &mut Session, p: &Value) -> Result<Value> {
     let st = state_mut(s)?;
     st.project.rename_album(id, &name).map_err(perr)?;
     st.dirty = true;
+    // Open photos name their look group after the album.
+    album_look::refresh_album_docs(s, id, None);
     Ok(json!({"id": id, "name": name.trim()}))
 }
 
@@ -476,6 +505,7 @@ fn album_delete(s: &mut Session, p: &Value) -> Result<Value> {
     let id = id_param(p, "id", "album.delete")?;
     let st = state_mut(s)?;
     let a = st.project.delete_album(id).map_err(perr)?;
+    st.looks.remove(&id);
     st.dirty = true;
     let ids: Vec<u64> = a.photos.iter().map(|p| p.id).collect();
     clear_open(s, &ids);
@@ -660,6 +690,7 @@ fn photo_open(s: &mut Session, p: &Value) -> Result<Value> {
     let st = state(s)?;
     let pipeline = st.resolved(id)?;
     let mut l = load_photo(st, id)?;
+    let look = album_look::inject_for_open(st, id, &mut l.doc);
     let (i, color) = if is_rgb(&l.doc) {
         let (ap, converted) = apply_pipeline(&mut l, &pipeline)?;
         let report = cp::report(&ap, &l.doc, converted);
@@ -676,6 +707,7 @@ fn photo_open(s: &mut Session, p: &Value) -> Result<Value> {
     };
     if let Some(d) = s.docs.get_mut(i) {
         d.project_photo = Some(id);
+        album_look::link_opened(d, look);
     }
     Ok(json!({
         "document": i,
@@ -689,15 +721,27 @@ fn photo_open(s: &mut Session, p: &Value) -> Result<Value> {
     }))
 }
 
+/// Writes the active photo's sidecar without its album look (the look lives in the album's
+/// `.pvlook`, written here too when it changed).
 fn photo_save(s: &mut Session, _: &Value) -> Result<Value> {
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let photo = d.project_photo.ok_or_else(|| EngineError::Other("the active document is not a project photo".into()))?;
     let sidecar = state(s)?.sidecar(photo)?;
-    let warnings = file_cmds::save_doc(&d.doc, &sidecar, None)?;
+    let doc = album_look::without_look(d);
+    let warnings = file_cmds::save_doc(&doc, &sidecar, None)?;
+    let look = save_photo_look(s)?;
     let st = s.active_mut().ok_or(EngineError::NoDocument)?;
     st.path = Some(sidecar.clone());
     st.saved_revision = st.revision;
-    Ok(json!({"path": sidecar, "photo": photo, "warnings": warnings}))
+    Ok(json!({"path": sidecar, "photo": photo, "warnings": warnings, "look": look}))
+}
+
+/// After the active project photo's sidecar was written (`photo.save`, or the shell's File ›
+/// Save): writes its album's look file if it changed. Returns the look file written, if any.
+pub fn save_photo_look(s: &mut Session) -> Result<Option<String>> {
+    let Some(album) = s.active().and_then(|d| d.album_look.as_ref()).map(|l| l.album) else { return Ok(None) };
+    let st = state_mut(s)?;
+    album_look::write_looks(st, Some(album))
 }
 
 // ------------------------------------------------------------------ album.export
@@ -716,6 +760,8 @@ fn export_one(st: &ProjectState, photo: u64, out: &str, quality: Option<f64>) ->
     let pipeline = st.resolved(photo)?;
     let mut l = load_photo(st, photo)?;
     let target = if is_rgb(&l.doc) { Some(apply_pipeline(&mut l, &pipeline)?.0.export_target()) } else { None };
+    // The album look applies after the photo's own edits, in its working space.
+    album_look::inject_for_export(st, photo, &mut l.doc);
     let (bytes, warnings) = file_cmds::encode_to(&l.doc, out, quality, target)?;
     file_cmds::write_file(out, &bytes)?;
     Ok(warnings)
@@ -873,7 +919,7 @@ const RAW_EXTENSIONS: &[&str] = &["dng", "cr2", "cr3", "nef", "nrw", "arw", "pef
 /// Bump when thumbnails render differently, so cached ones regenerate (v2: converted to sRGB).
 const THUMB_VERSION: u32 = 2;
 
-fn fnv1a(bytes: &[u8]) -> u64 {
+pub(crate) fn fnv1a(bytes: &[u8]) -> u64 {
     bytes.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ u64::from(*b)).wrapping_mul(0x0100_0000_01b3))
 }
 
@@ -936,6 +982,9 @@ pub struct ThumbPlan {
     max: u32,
     /// The photo's Input space when it overrides the file's own profile (originals only).
     input: Option<std::sync::Arc<photocraft_cms::Profile>>,
+    /// The album look to apply (its group) and the photo's pipeline, whose working space the
+    /// look is applied in; `None` when no look applies to the photo.
+    look: Option<(photocraft_doc::Layer, ColorPipeline)>,
 }
 
 impl ThumbPlan {
@@ -949,6 +998,9 @@ impl ThumbPlan {
             && is_rgb(&doc)
         {
             doc.icc_profile = Some(p.to_bytes());
+        }
+        if let Some((group, pipeline)) = &self.look {
+            doc = album_look::thumbnail_with_look(&doc, self.max, group, pipeline)?;
         }
         let png = encode_png(&display_thumbnail(&doc, self.max))?;
         if let Some(dir) = self.path.rfind(['/', '\\']).and_then(|i| self.path.get(..i)) {
@@ -982,11 +1034,14 @@ pub fn thumbnail_plan(s: &Session, id: u64, max: u32) -> Result<ThumbPlan> {
     let source = sidecar.unwrap_or(original);
     let (mtime, size) = fs::stamp(&source).ok_or_else(|| EngineError::Other(format!("{source} is missing: relink the photo (photo.relink)")))?;
     let input_key = input.as_ref().map_or(0, |p| p.content_hash());
-    let key = fnv1a(format!("v{THUMB_VERSION}\n{source}\n{mtime}\n{size}\n{max}\n{input_key}").as_bytes());
+    // The album look is part of the picture: a changed look gives a new cache key.
+    let look = album_look::thumbnail_look(st, id);
+    let look_key = look.as_ref().map_or(0, |(g, _)| album_look::group_hash(g));
+    let key = fnv1a(format!("v{THUMB_VERSION}\n{source}\n{mtime}\n{size}\n{max}\n{input_key}\n{look_key:x}").as_bytes());
     let dir = pj::thumb_cache_dir(&st.path);
     let path = pj::join(&dir, &format!("{key:016x}.png"));
     let cached = fs::is_file(&path);
-    Ok(ThumbPlan { photo: id, path, cached, source, from_sidecar, max, input })
+    Ok(ThumbPlan { photo: id, path, cached, source, from_sidecar, max, input, look })
 }
 
 fn photo_thumbnail(s: &mut Session, p: &Value) -> Result<Value> {

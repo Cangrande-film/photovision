@@ -248,9 +248,14 @@ fn revert(s: &mut Session) -> Result<Value> {
     let path = s.active().and_then(|d| d.path.clone()).ok_or(EngineError::Other("the document has never been saved".into()))?;
     let bytes = read_file(&path)?;
     let fresh = import(&file_name(&path), &bytes)?;
+    // A project photo's sidecar has no album look: put the shared group back on top.
+    let look = s.active_index().and_then(|i| crate::album_look::group_for_revert(s, i));
     s.edit("Revert", |doc, active| {
         let (id, name) = (doc.id, doc.name.clone());
         *doc = fresh;
+        if let Some(g) = look {
+            doc.layers.push(g);
+        }
         // Keep the identity (colour state, views and caches are keyed by it) and the tab name.
         doc.id = id;
         doc.name = name;

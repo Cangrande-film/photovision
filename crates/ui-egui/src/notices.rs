@@ -44,6 +44,20 @@ pub fn io_warnings(app: &mut PhotocraftApp, what: &str, warnings: &[String]) {
     post(app, format!("{what} with {n} warning{}", if n == 1 { "" } else { "s" }), warnings.to_vec(), false);
 }
 
+/// Show what commands left for the user in the engine ([`photocraft_engine::Session::notices`]:
+/// album look changes such as layers moved out of a look), one notice per frame's batch.
+pub fn engine(app: &mut PhotocraftApp) {
+    let lines = app.session.take_notices();
+    if lines.is_empty() {
+        return;
+    }
+    if let Some(first) = lines.first() {
+        app.ui.status = first.clone();
+        app.ui.status_error = false;
+    }
+    post(app, tl!("Album Look"), lines, false);
+}
+
 /// Report a failed file operation: the status bar shows it as an error and a notice keeps it on
 /// screen until dismissed.
 pub fn error(app: &mut PhotocraftApp, message: String) {

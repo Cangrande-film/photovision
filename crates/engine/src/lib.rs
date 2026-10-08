@@ -8,6 +8,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod adjust_cmds;
+pub mod album_look;
 pub mod adjust_params;
 pub mod align_cmds;
 pub mod analysis_cmds;
@@ -165,6 +166,9 @@ pub struct DocState {
     pub fx_collapsed: Vec<LayerId>,
     /// The project photo this document shows (see `project_cmds`): File › Save writes its sidecar.
     pub project_photo: Option<u64>,
+    /// The project photo's album look group (see [`album_look`]): not saved in its sidecar,
+    /// shared with the album's other photos.
+    pub album_look: Option<album_look::AlbumLookLink>,
 }
 
 impl DocState {
@@ -187,6 +191,7 @@ impl DocState {
             isolated_layers: Vec::new(),
             fx_collapsed: Vec::new(),
             project_photo: None,
+            album_look: None,
         }
     }
     /// The selected layers in bottom-to-top document order, always including the active layer.
@@ -288,6 +293,9 @@ pub struct Session {
     jobs: jobs::Jobs,
     /// The open PhotoVision project (albums, photos, colour settings; see `project_cmds`).
     pub project: Option<project_cmds::ProjectState>,
+    /// Messages for the user that commands leave behind (album look changes they should know
+    /// about); the shell shows and clears them ([`Session::take_notices`]).
+    pub notices: Vec<String>,
 }
 
 impl Session {

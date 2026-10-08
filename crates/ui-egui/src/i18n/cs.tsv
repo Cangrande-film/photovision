@@ -2093,3 +2093,31 @@
 	Expand Clips	Rozbalit klipy
 	Collapse Clips	Sbalit klipy
 	Reveal in Library	Zobrazit v knihovně
+# PhotoVision album looks
+	Album Look	Vzhled alba
+	Enable Album Look	Zapnout vzhled alba
+	Use Album Look for This Photo	Použít vzhled alba na tuto fotografii
+	Move Layers to Album Look	Přesunout vrstvy do vzhledu alba
+	Copy Layers from Album Look	Kopírovat vrstvy ze vzhledu alba
+	Clear Album Look…	Vymazat vzhled alba…
+	Move to Album Look	Přesunout do vzhledu alba
+	Copy from Album Look	Kopírovat ze vzhledu alba
+	Look	Vzhled
+	No look	Bez vzhledu
+	Open a photo of an album, or select an album in the Library	Otevřete fotografii z alba nebo vyberte album v knihovně
+	Open a project photo, or select one photo in the Library	Otevřete fotografii projektu nebo vyberte jednu fotografii v knihovně
+@plural	Shared by the {n} photo in {album}|Shared by all {n} photos in {album}	Sdílí ji {n} fotografie v albu {album}|Sdílejí ji všechny {n} fotografie v albu {album}|Sdílí ji všech {n} fotografií v albu {album}
+	The album look applies after this photo's own layers. Edit its layers here and every photo of the album follows; hide it to bypass it for this photo.	Vzhled alba se použije po vlastních vrstvách této fotografie. Upravte zde jeho vrstvy a změní se všechny fotografie alba; skrytím jej pro tuto fotografii vynecháte.
+	Applied to every photo in {album}, after each photo's own edits.	Použije se na každou fotografii v albu {album}, po vlastních úpravách každé fotografie.
+	Show the album look on the album's photos	Zobrazit vzhled alba na jeho fotografiích
+	No layers yet. In Edit, select adjustment layers and choose Move to Album Look (Layers panel menu or Project › Album Look).	Zatím žádné vrstvy. V úpravách vyberte vrstvy úprav a zvolte Přesunout do vzhledu alba (nabídka panelu Vrstvy nebo Projekt › Vzhled alba).
+	Layers (top first)	Vrstvy (shora dolů)
+@plural	{n} photo bypasses the look|{n} photos bypass the look	{n} fotografie vzhled vynechává|{n} fotografie vzhled vynechávají|{n} fotografií vzhled vynechává
+	Remove every layer of the album look	Odebrat všechny vrstvy vzhledu alba
+	Use album look	Použít vzhled alba
+	Off: the album look is bypassed for this photo	Vypnuto: vzhled alba se na tuto fotografii nepoužije
+	{album} has no album look yet.	Album {album} zatím nemá vzhled.
+	The album look of {album} is turned off.	Vzhled alba {album} je vypnutý.
+@plural	Album look of {album}: {n} layer|Album look of {album}: {n} layers	Vzhled alba {album}: {n} vrstva|Vzhled alba {album}: {n} vrstvy|Vzhled alba {album}: {n} vrstev
+	Clear the album look of “{name}”?	Vymazat vzhled alba „{name}“?
+	Every photo of the album loses it. This can't be undone.	Přijdou o něj všechny fotografie alba. Tuto akci nelze vrátit.

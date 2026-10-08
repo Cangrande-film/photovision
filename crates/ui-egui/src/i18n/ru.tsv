@@ -2360,3 +2360,31 @@
 	Expand Clips	Развернуть клипы
 	Collapse Clips	Свернуть клипы
 	Reveal in Library	Показать в библиотеке
+# PhotoVision album looks
+	Album Look	Стиль альбома
+	Enable Album Look	Включить стиль альбома
+	Use Album Look for This Photo	Применять стиль альбома к этому фото
+	Move Layers to Album Look	Переместить слои в стиль альбома
+	Copy Layers from Album Look	Скопировать слои из стиля альбома
+	Clear Album Look…	Очистить стиль альбома…
+	Move to Album Look	Переместить в стиль альбома
+	Copy from Album Look	Скопировать из стиля альбома
+	Look	Стиль
+	No look	Без стиля
+	Open a photo of an album, or select an album in the Library	Откройте фото из альбома или выберите альбом в библиотеке
+	Open a project photo, or select one photo in the Library	Откройте фото проекта или выберите одно фото в библиотеке
+@plural	Shared by the {n} photo in {album}|Shared by all {n} photos in {album}	Общий для {n} фото в альбоме {album}|Общий для всех {n} фото в альбоме {album}|Общий для всех {n} фото в альбоме {album}
+	The album look applies after this photo's own layers. Edit its layers here and every photo of the album follows; hide it to bypass it for this photo.	Стиль альбома применяется после собственных слоёв этого фото. Измените его слои здесь — изменятся все фото альбома; скройте его, чтобы не применять к этому фото.
+	Applied to every photo in {album}, after each photo's own edits.	Применяется ко всем фото в альбоме {album} после собственных правок каждого фото.
+	Show the album look on the album's photos	Показывать стиль альбома на его фото
+	No layers yet. In Edit, select adjustment layers and choose Move to Album Look (Layers panel menu or Project › Album Look).	Слоёв пока нет. В режиме правки выберите корректирующие слои и выполните «Переместить в стиль альбома» (меню панели «Слои» или Проект › Стиль альбома).
+	Layers (top first)	Слои (сверху вниз)
+@plural	{n} photo bypasses the look|{n} photos bypass the look	{n} фото не использует стиль|{n} фото не используют стиль|{n} фото не используют стиль
+	Remove every layer of the album look	Удалить все слои стиля альбома
+	Use album look	Использовать стиль альбома
+	Off: the album look is bypassed for this photo	Выкл.: стиль альбома не применяется к этому фото
+	{album} has no album look yet.	У альбома {album} пока нет стиля.
+	The album look of {album} is turned off.	Стиль альбома {album} выключен.
+@plural	Album look of {album}: {n} layer|Album look of {album}: {n} layers	Стиль альбома {album}: {n} слой|Стиль альбома {album}: {n} слоя|Стиль альбома {album}: {n} слоёв
+	Clear the album look of “{name}”?	Очистить стиль альбома «{name}»?
+	Every photo of the album loses it. This can't be undone.	Все фото альбома его потеряют. Это нельзя отменить.

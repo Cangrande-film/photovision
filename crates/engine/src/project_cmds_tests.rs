@@ -124,7 +124,8 @@ fn project_workflow_end_to_end() {
     assert_eq!(norm(r["path"].as_str().unwrap()), norm(&format!("{a_jpg}.pvision")));
     assert!(!s.active().unwrap().is_dirty());
     assert_eq!(std::fs::read(&a_jpg).unwrap(), before);
-    let layers = s.active().unwrap().doc.layers.len();
+    // The photo's own layers: the album look group on top is not saved in the sidecar.
+    let layers = s.active().unwrap().doc.layers.len() - 1;
 
     // Output change on an open photo: no conversion. Working change: converts.
     let r = ok(&mut s, "project.setColor", json!({"level": "photo", "id": a_id, "field": "output", "value": "display-p3"}));
@@ -145,7 +146,7 @@ fn project_workflow_end_to_end() {
     let r = ok(&mut s, "photo.open", json!({"id": a_id}));
     assert_eq!(r["fromSidecar"], true, "{r}");
     let d = s.active().unwrap();
-    assert_eq!(d.doc.layers.len(), layers);
+    assert_eq!(d.doc.layers.len(), layers + 1, "the photo's layers and its album look");
     assert_eq!(d.doc.depth, SampleType::F32);
     let info = ok(&mut s, "project.info", json!({}));
     assert_eq!(info["albums"][0]["photos"][0]["hasSidecar"], true);
@@ -410,6 +411,6 @@ fn sidecars_are_pvision_files_and_never_imported() {
     std::fs::rename(t.path("a.png.pvision"), t.path("a.png.pcraft")).unwrap();
     let r = ok(&mut s, "photo.open", json!({"id": id}));
     assert_eq!(r["fromSidecar"], true, "{r}");
-    assert_eq!(s.active().unwrap().doc.layers.len(), 2);
+    assert_eq!(s.active().unwrap().doc.layers.len(), 3, "background, new layer, album look");
     ok(&mut s, "project.close", json!({"discard": true}));
 }

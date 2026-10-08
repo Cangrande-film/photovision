@@ -99,7 +99,7 @@ fn project_photos_save_to_their_sidecar() {
     let album = project.add_album("A").unwrap();
     let added = project.add_photos(album, &["/pics/IMG_1.jpg".to_string()], false, None).unwrap();
     let photocraft_engine::project::Added::New(id) = added[0] else { panic!("{added:?}") };
-    app.session.project = Some(photocraft_engine::project_cmds::ProjectState { project, path: "/work/P.pvproj".into(), dirty: false });
+    app.session.project = Some(photocraft_engine::project_cmds::ProjectState::new(project, "/work/P.pvproj".into()));
     app.open_file("/pics/IMG_1.jpg", b"x").unwrap();
     app.session.active_mut().unwrap().project_photo = Some(id);
     // A flat original would go through Save As (cancelled here); a project photo writes its sidecar.

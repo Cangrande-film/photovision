@@ -334,7 +334,7 @@ pub fn view(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         .exact_size(330.0)
         .resizable(false)
         .frame(egui::Frame::NONE.fill(t.dock).inner_margin(egui::Margin::same(12)))
-        .show(ui, |ui| inspector(app, ui, &info));
+        .show(ui, |ui| egui::ScrollArea::vertical().id_salt("library-inspector-scroll").auto_shrink([false, false]).show(ui, |ui| inspector(app, ui, &info)));
     egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.canvas).inner_margin(egui::Margin::same(14))).show(ui, |ui| grid(app, ui, &info));
     // Files dragged over the grid from the file manager: they are imported on drop.
     if ui.ctx().input(|i| !i.raw.hovered_files.is_empty()) {
@@ -639,6 +639,11 @@ fn inspector(app: &mut PhotocraftApp, ui: &mut egui::Ui, info: &Value) {
             .size(11.5),
     );
     rebuild_notice(app, ui);
+    match &target {
+        Target::Album(id) => crate::album_look_ui::album_section(app, ui, info, *id),
+        Target::Photos(ids) => crate::album_look_ui::photos_section(app, ui, info, ids),
+        Target::Project => {}
+    }
 }
 
 /// "Input space changed" card with Rebuild from original.
@@ -708,6 +713,9 @@ pub(crate) fn paint_badges(painter: &egui::Painter, t: &Tokens, at: egui::Pos2, 
     }
     if p["exists"] != json!(true) {
         x = paint_badge(painter, t, egui::pos2(x, at.y), tl!("Missing"), t.danger) + 4.0;
+    }
+    if p["albumLook"] == json!(false) {
+        x = paint_badge(painter, t, egui::pos2(x, at.y), tl!("No look"), t.text_faint) + 4.0;
     }
     x
 }
@@ -1016,7 +1024,7 @@ fn relink(app: &mut PhotocraftApp, id: u64) {
 
 // ------------------------------------------------------------------ dialogs
 
-fn dialog(app: &mut PhotocraftApp, kind: &str, label: &str, fields: Value) -> u64 {
+pub(crate) fn dialog(app: &mut PhotocraftApp, kind: &str, label: &str, fields: Value) -> u64 {
     let mut f = Map::new();
     f.insert("__library".into(), json!(kind));
     f.insert("__label".into(), json!(label));
@@ -1085,6 +1093,7 @@ pub fn ok_label(f: &Map<String, Value>) -> Option<&'static str> {
         "newAlbum" => tl!("Create"),
         "renameAlbum" => tl!("Rename"),
         "deleteAlbum" => tl!("Delete"),
+        "clearLook" => tl!("Clear"),
         "removePhotos" => tl!("Remove"),
         "import" => tl!("Import"),
         "export" => tl!("Export"),
@@ -1147,6 +1156,11 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
                 ))
                 .color(t.text_dim),
             );
+        }
+        "clearLook" => {
+            let id = f.get("album").and_then(Value::as_u64).unwrap_or(0);
+            ui.label(crate::i18n::fmt(tl!("Clear the album look of “{name}”?"), &[("name", &album_name(app, id))]));
+            ui.label(RichText::new(tl!("Every photo of the album loses it. This can't be undone.")).color(t.text_dim));
         }
         "removePhotos" => {
             let n = f.get("photos").and_then(Value::as_array).map_or(0, Vec::len);
@@ -1310,6 +1324,7 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
             Ok(r)
         }
         "renameAlbum" => app.run("album.rename", json!({"id": u("album"), "name": s("name")})),
+        "clearLook" => app.run("album.look.clear", json!({"album": u("album")})),
         "deleteAlbum" => {
             let id = u("album");
             let r = app.run("album.delete", json!({"id": id}))?;

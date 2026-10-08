@@ -19,6 +19,7 @@ pub mod adjust_dialog;
 pub mod adjust_editors;
 pub mod adjust_preview;
 pub mod adjust_ui;
+pub mod album_look_ui;
 pub mod analysis_ui;
 pub mod artboard_ui;
 pub mod brush_panel;
@@ -735,14 +736,21 @@ impl PhotocraftApp {
             None => self.services.pick_save.as_mut().and_then(|f| f(&suggested)).ok_or("cancelled")?,
         };
         let settings = self.active_export_settings();
-        let st = self.session.active().ok_or("no document")?;
+        let index = self.session.active_index().ok_or("no document")?;
+        // A project photo's sidecar is written without its album look (that is the album's).
+        let doc = self.session.document_to_save(index, &path).ok_or("no document")?;
         let export = self.services.export.as_ref().ok_or("no exporter configured")?;
-        let (bytes, warnings) = export(&st.doc, &path, &settings)?;
+        let (bytes, warnings) = export(&doc, &path, &settings)?;
         let write = self.services.write.as_mut().ok_or("no writer configured")?;
         write(&path, &bytes)?;
         if let Some(st) = self.session.active_mut() {
             st.path = Some(path.clone());
             st.saved_revision = st.revision;
+        }
+        if self.session.active_photo_sidecar().is_some_and(|s| s.replace('\\', "/") == path.replace('\\', "/"))
+            && let Err(e) = photocraft_engine::project_cmds::save_photo_look(&mut self.session)
+        {
+            notices::error(self, e.to_string());
         }
         self.ui.status = format!("Saved {path}");
         // "Save Document" script events and File › Generate › Image Assets.
@@ -767,9 +775,12 @@ impl PhotocraftApp {
             .or_else(|| state.path.clone().filter(|p| photocraft_engine::file_cmds::saves_in_place(p)))
             .ok_or("pass `path`: a save without one writes back only to the document's own PSD, PSB or .pcraft file")?;
         let settings = self.active_export_settings();
-        let state = self.session.active().ok_or("no document")?;
+        let index = self.session.active_index().ok_or("no document")?;
+        // As File › Save: a project photo's sidecar never holds its album look (the look itself
+        // is written with the project).
+        let doc = self.session.document_to_save(index, &target).ok_or("no document")?;
         let export = self.services.export.as_ref().ok_or("no exporter configured")?;
-        let (bytes, warnings) = export(&state.doc, &target, &settings)?;
+        let (bytes, warnings) = export(&doc, &target, &settings)?;
         let write = self.services.automation_write.as_mut().ok_or("automation write authority is not configured")?;
         write(&target, &bytes)?;
         if let Some(state) = self.session.active_mut() {
@@ -907,6 +918,7 @@ impl eframe::App for PhotocraftApp {
             self.open_dropped(dropped);
         }
         library_ui::tick(self);
+        notices::engine(self);
         // The control transport wakes the UI on arrival (ctx.request_repaint); only poll while a
         // screenshot is pending. (Polling every 50 ms here made idle apps render at 20 fps.)
         if !self.pending_screenshots.is_empty() {

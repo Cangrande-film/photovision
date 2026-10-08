@@ -2083,3 +2083,31 @@
 	Expand Clips	クリップを展開
 	Collapse Clips	クリップを折りたたむ
 	Reveal in Library	ライブラリで表示
+# PhotoVision album looks
+	Album Look	アルバムルック
+	Enable Album Look	アルバムルックを有効にする
+	Use Album Look for This Photo	この写真にアルバムルックを使用
+	Move Layers to Album Look	レイヤーをアルバムルックに移動
+	Copy Layers from Album Look	アルバムルックからレイヤーをコピー
+	Clear Album Look…	アルバムルックを消去…
+	Move to Album Look	アルバムルックに移動
+	Copy from Album Look	アルバムルックからコピー
+	Look	ルック
+	No look	ルックなし
+	Open a photo of an album, or select an album in the Library	アルバムの写真を開くか、ライブラリでアルバムを選択してください
+	Open a project photo, or select one photo in the Library	プロジェクトの写真を開くか、ライブラリで写真を 1 枚選択してください
+@plural	Shared by the {n} photo in {album}|Shared by all {n} photos in {album}	{album} の {n} 枚の写真すべてで共有
+	The album look applies after this photo's own layers. Edit its layers here and every photo of the album follows; hide it to bypass it for this photo.	アルバムルックはこの写真自体のレイヤーの後に適用されます。ここでレイヤーを編集するとアルバムのすべての写真に反映されます。非表示にすると、この写真ではバイパスされます。
+	Applied to every photo in {album}, after each photo's own edits.	{album} のすべての写真に、各写真自体の編集の後に適用されます。
+	Show the album look on the album's photos	アルバムの写真にアルバムルックを表示
+	No layers yet. In Edit, select adjustment layers and choose Move to Album Look (Layers panel menu or Project › Album Look).	まだレイヤーがありません。編集で調整レイヤーを選択し、「アルバムルックに移動」を選んでください (レイヤーパネルのメニュー、またはプロジェクト › アルバムルック)。
+	Layers (top first)	レイヤー (上から順)
+@plural	{n} photo bypasses the look|{n} photos bypass the look	{n} 枚の写真でルックをバイパス中
+	Remove every layer of the album look	アルバムルックのすべてのレイヤーを削除
+	Use album look	アルバムルックを使用
+	Off: the album look is bypassed for this photo	オフ: この写真ではアルバムルックをバイパスします
+	{album} has no album look yet.	{album} にはまだアルバムルックがありません。
+	The album look of {album} is turned off.	{album} のアルバムルックはオフです。
+@plural	Album look of {album}: {n} layer|Album look of {album}: {n} layers	{album} のアルバムルック: {n} レイヤー
+	Clear the album look of “{name}”?	「{name}」のアルバムルックを消去しますか?
+	Every photo of the album loses it. This can't be undone.	アルバムのすべての写真から外れます。この操作は取り消せません。

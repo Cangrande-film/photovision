@@ -1977,3 +1977,31 @@
 	Expand Clips	展开片段
 	Collapse Clips	折叠片段
 	Reveal in Library	在图库中显示
+# PhotoVision album looks
+	Album Look	相册风格
+	Enable Album Look	启用相册风格
+	Use Album Look for This Photo	此照片使用相册风格
+	Move Layers to Album Look	将图层移到相册风格
+	Copy Layers from Album Look	从相册风格复制图层
+	Clear Album Look…	清除相册风格…
+	Move to Album Look	移到相册风格
+	Copy from Album Look	从相册风格复制
+	Look	风格
+	No look	无风格
+	Open a photo of an album, or select an album in the Library	请打开某个相册中的照片，或在图库中选择一个相册
+	Open a project photo, or select one photo in the Library	请打开一张项目照片，或在图库中选择一张照片
+@plural	Shared by the {n} photo in {album}|Shared by all {n} photos in {album}	由 {album} 中全部 {n} 张照片共享
+	The album look applies after this photo's own layers. Edit its layers here and every photo of the album follows; hide it to bypass it for this photo.	相册风格在此照片自身的图层之后应用。在此编辑其图层，相册中的每张照片都会随之改变；隐藏它可让此照片绕过相册风格。
+	Applied to every photo in {album}, after each photo's own edits.	在 {album} 中每张照片自身的编辑之后应用于该照片。
+	Show the album look on the album's photos	在相册的照片上显示相册风格
+	No layers yet. In Edit, select adjustment layers and choose Move to Album Look (Layers panel menu or Project › Album Look).	还没有图层。在“编辑”中选择调整图层，然后选择“移到相册风格”（图层面板菜单或 项目 › 相册风格）。
+	Layers (top first)	图层（从上到下）
+@plural	{n} photo bypasses the look|{n} photos bypass the look	{n} 张照片绕过了风格
+	Remove every layer of the album look	移除相册风格的所有图层
+	Use album look	使用相册风格
+	Off: the album look is bypassed for this photo	关闭：此照片绕过相册风格
+	{album} has no album look yet.	{album} 还没有相册风格。
+	The album look of {album} is turned off.	{album} 的相册风格已关闭。
+@plural	Album look of {album}: {n} layer|Album look of {album}: {n} layers	{album} 的相册风格：{n} 个图层
+	Clear the album look of “{name}”?	清除“{name}”的相册风格？
+	Every photo of the album loses it. This can't be undone.	相册中的每张照片都会失去它。此操作无法撤销。

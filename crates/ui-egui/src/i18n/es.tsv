@@ -2167,3 +2167,31 @@
 	Expand Clips	Expandir clips
 	Collapse Clips	Contraer clips
 	Reveal in Library	Mostrar en la biblioteca
+# PhotoVision album looks
+	Album Look	Look del álbum
+	Enable Album Look	Activar look del álbum
+	Use Album Look for This Photo	Usar el look del álbum en esta foto
+	Move Layers to Album Look	Mover capas al look del álbum
+	Copy Layers from Album Look	Copiar capas del look del álbum
+	Clear Album Look…	Borrar look del álbum…
+	Move to Album Look	Mover al look del álbum
+	Copy from Album Look	Copiar del look del álbum
+	Look	Look
+	No look	Sin look
+	Open a photo of an album, or select an album in the Library	Abra una foto de un álbum o seleccione un álbum en la biblioteca
+	Open a project photo, or select one photo in the Library	Abra una foto del proyecto o seleccione una foto en la biblioteca
+@plural	Shared by the {n} photo in {album}|Shared by all {n} photos in {album}	Compartido por la {n} foto de {album}|Compartido por las {n} fotos de {album}
+	The album look applies after this photo's own layers. Edit its layers here and every photo of the album follows; hide it to bypass it for this photo.	El look del álbum se aplica después de las capas propias de esta foto. Edite aquí sus capas y todas las fotos del álbum cambiarán; ocúltelo para omitirlo en esta foto.
+	Applied to every photo in {album}, after each photo's own edits.	Se aplica a todas las fotos de {album}, después de las ediciones propias de cada foto.
+	Show the album look on the album's photos	Mostrar el look del álbum en sus fotos
+	No layers yet. In Edit, select adjustment layers and choose Move to Album Look (Layers panel menu or Project › Album Look).	Aún no hay capas. En Edición, seleccione capas de ajuste y elija Mover al look del álbum (menú del panel Capas o Proyecto › Look del álbum).
+	Layers (top first)	Capas (de arriba abajo)
+@plural	{n} photo bypasses the look|{n} photos bypass the look	{n} foto omite el look|{n} fotos omiten el look
+	Remove every layer of the album look	Quitar todas las capas del look del álbum
+	Use album look	Usar el look del álbum
+	Off: the album look is bypassed for this photo	Desactivado: el look del álbum se omite en esta foto
+	{album} has no album look yet.	{album} aún no tiene look de álbum.
+	The album look of {album} is turned off.	El look del álbum {album} está desactivado.
+@plural	Album look of {album}: {n} layer|Album look of {album}: {n} layers	Look del álbum {album}: {n} capa|Look del álbum {album}: {n} capas
+	Clear the album look of “{name}”?	¿Borrar el look del álbum «{name}»?
+	Every photo of the album loses it. This can't be undone.	Todas las fotos del álbum lo pierden. No se puede deshacer.

@@ -1630,6 +1630,11 @@ fn layer_row(
     }
     let thumb = Rect::from_min_size(pos2(x, rect.center().y - ts / 2.0), vec2(ts, ts));
     draw_layer_thumb(app, ctx, ui, doc, l, thumb, row.primary);
+    // PhotoVision: the photo's album look group (shared by the album) is ringed in the accent.
+    let look_tip = crate::album_look_ui::group_tooltip(app, l.id);
+    if look_tip.is_some() {
+        painter.rect_stroke(thumb.expand(1.0), 6.0, Stroke::new(1.5, t.accent), StrokeKind::Outside);
+    }
     x += ts + 6.0;
     // Link chains and pixel / vector mask thumbnails (#153).
     let masks = crate::mask_thumbs_ui::paint(app, ctx, ui, &painter, doc, l, &mut x, rect.center().y, ts, actions);
@@ -1651,7 +1656,7 @@ fn layer_row(
     }
     // Right-hand indicators first; the name gets what is left and ends in "…" (#144).
     let fx_open = app.session.active().is_none_or(|d| !d.fx_collapsed.contains(&l.id));
-    let (name_right, indicators, fx_toggled) = crate::layer_row_ui::indicators(ui, &painter, rect, x, l, fx_open, actions);
+    let (name_right, indicators, fx_toggled) = crate::layer_row_ui::indicators(ui, &painter, rect, x, l, fx_open, look_tip.as_deref(), actions);
     let name_color = if l.visible { t.text } else { t.text_faint };
     let font = if selected && !t.pro { theme::medium(13.0) } else { egui::FontId::proportional(if t.pro { 12.0 } else { 13.0 }) };
     // Photoshop before 2026 set the Background layer's name in italics; 2026 sets it upright.

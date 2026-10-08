@@ -158,7 +158,7 @@ fn path_helpers() {
     assert_eq!(relative_to_project("C:\\work\\MyShoot.pvproj", "C:\\work\\MyShoot Media\\A\\x.jpg").as_deref(), Some("MyShoot Media/A/x.jpg"));
     assert_eq!(relative_to_project("C:/work/MyShoot.pvproj", "C:/elsewhere/x.jpg"), None);
     assert_eq!(relative_to_project("C:/work/MyShoot.pvproj", "C:/work2/x.jpg"), None);
-    let ph = Photo { id: 1, path: "MyShoot Media/A/x.jpg".into(), managed: true, color: Default::default(), added: None };
+    let ph = Photo { id: 1, path: "MyShoot Media/A/x.jpg".into(), managed: true, color: Default::default(), added: None, album_look: true };
     assert_eq!(photo_file("C:\\work\\MyShoot.pvproj", &ph), "C:\\work\\MyShoot Media\\A\\x.jpg");
     assert_eq!(photo_file("/w/MyShoot.pvproj", &ph), "/w/MyShoot Media/A/x.jpg");
     assert_eq!(unique_name("a.jpg", |n| n == "a.jpg" || n == "a (2).jpg"), "a (3).jpg");
@@ -173,4 +173,42 @@ fn timestamps() {
     assert_eq!(rfc3339_utc(0), "1970-01-01T00:00:00Z");
     assert_eq!(rfc3339_utc(951_782_400), "2000-02-29T00:00:00Z");
     assert_eq!(rfc3339_utc(1_791_374_096), "2026-10-07T11:54:56Z");
+}
+
+#[test]
+fn album_looks_round_trip_and_old_files_default_on() {
+    let mut p = sample();
+    let a = p.albums[0].id;
+    let ph = p.albums[0].photos[0].id;
+    // Defaults: enabled, applied to every photo, no file yet; nothing extra is written.
+    assert!(p.albums[0].look_enabled && p.albums[0].look.is_none());
+    assert!(p.albums[0].photos.iter().all(|x| x.album_look));
+    let text = p.to_json().unwrap();
+    assert!(!text.contains("lookEnabled") && !text.contains("albumLook") && !text.contains("\"look\""), "{text}");
+    p.album_mut(a).unwrap().look = Some(look_rel_path("C:/work/Shoot.pvproj", a));
+    p.album_mut(a).unwrap().look_enabled = false;
+    p.photo_mut(ph).unwrap().album_look = false;
+    let text = p.to_json().unwrap();
+    assert!(text.contains("\"lookEnabled\": false") && text.contains("\"albumLook\": false"), "{text}");
+    let q = Project::from_json(&text).unwrap();
+    assert_eq!(p, q);
+    assert_eq!(q.album(a).unwrap().look.as_deref(), Some("Shoot Looks/album-1.pvlook"));
+    // A project written before album looks loads with them on.
+    let old = Project::from_json(r#"{"version":1,"name":"x","albums":[{"id":7,"name":"A","photos":[{"id":9,"path":"/a.jpg"}]}]}"#).unwrap();
+    assert!(old.albums[0].look_enabled && old.albums[0].look.is_none() && old.albums[0].photos[0].album_look);
+    // Look paths must stay inside the project folder.
+    for bad in ["../x.pvlook", "C:/abs.pvlook", "/abs.pvlook", "Looks/x.txt", "", "a//b.pvlook"] {
+        let t = format!(r#"{{"version":1,"name":"x","albums":[{{"id":1,"name":"A","look":{}}}]}}"#, serde_json::to_string(bad).unwrap());
+        assert!(Project::from_json(&t).is_err(), "accepted look path {bad}");
+    }
+    assert!(Project::from_json(r#"{"version":1,"name":"x","albums":[{"id":1,"name":"A","look":"S Looks/album-1.pvlook"}]}"#).is_ok());
+}
+
+#[test]
+fn look_path_helpers() {
+    assert_eq!(looks_dir("C:/work/My:Shoot.pvproj"), "C:/work/My_Shoot Looks");
+    assert_eq!(look_rel_path(r"C:\work\MyShoot.pvproj", 12), "MyShoot Looks/album-12.pvlook");
+    assert_eq!(project_file(r"C:\work\MyShoot.pvproj", "MyShoot Looks/album-12.pvlook"), r"C:\work\MyShoot Looks\album-12.pvlook");
+    assert_eq!(project_file("/w/MyShoot.pvproj", "MyShoot Looks/album-12.pvlook"), "/w/MyShoot Looks/album-12.pvlook");
+    assert!(validate_look_path(&look_rel_path("/w/MyShoot.pvproj", 3)).is_ok());
 }

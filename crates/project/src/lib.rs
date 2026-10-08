@@ -10,6 +10,10 @@
 //! * Edits are saved as a sidecar next to the original ([`sidecar_path`]: `IMG_0001.jpg.pvision`, the native `.pcraft` bundle format under PhotoVision's extension);
 //!   originals are never modified.
 //! * Thumbnails are cached in [`thumb_cache_dir`] (`MyShoot.pvcache/thumbs/`).
+//! * An album may have an **album look**: adjustment layers applied after every photo's own
+//!   edits (like a timeline grade), stored as a small native bundle
+//!   `<ProjectStem> Looks/album-<id>.pvlook` ([`look_rel_path`]) referenced by [`Album::look`].
+//!   [`Album::look_enabled`] switches it for the album, [`Photo::album_look`] bypasses it per photo.
 //!
 //! No I/O happens here (the engine reads and writes files); everything builds for wasm.
 
@@ -28,6 +32,8 @@ pub const FORMAT_VERSION: u32 = 1;
 pub const EXTENSION: &str = "pvproj";
 /// Sidecar extension appended to the original's file name.
 pub const SIDECAR_EXTENSION: &str = "pvision";
+/// Album look extension (a native bundle holding the look's group).
+pub const LOOK_EXTENSION: &str = "pvlook";
 /// The sidecar extension of early (pre-release) projects, still read: `IMG_0001.jpg.pcraft`.
 pub const LEGACY_SIDECAR_EXTENSION: &str = "pcraft";
 /// Largest project file [`Project::from_json`] accepts.
@@ -90,6 +96,21 @@ pub struct Album {
     pub color: ColorOverride,
     #[serde(default)]
     pub photos: Vec<Photo>,
+    /// The album look's file ([`look_rel_path`]), relative to the project file's folder with `/`
+    /// separators; `None` = no look saved yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub look: Option<String>,
+    /// The album look applies (when off, no photo of the album shows it).
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub look_enabled: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+fn is_true(b: &bool) -> bool {
+    *b
 }
 
 /// A photo in an album.
@@ -107,6 +128,10 @@ pub struct Photo {
     /// When the photo was added (RFC 3339 UTC), if known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub added: Option<String>,
+    /// The album look applies to this photo (false = bypassed for it, like disabling the
+    /// timeline grade for one clip).
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub album_look: bool,
 }
 
 /// Outcome of adding one path in [`Project::add_photos`].
@@ -186,7 +211,7 @@ impl Project {
             return Err(invalid(format!("a project holds at most {MAX_ALBUMS} albums")));
         }
         let id = self.alloc_id();
-        self.albums.push(Album { id, name, color: ColorOverride::default(), photos: Vec::new() });
+        self.albums.push(Album { id, name, color: ColorOverride::default(), photos: Vec::new(), look: None, look_enabled: true });
         Ok(id)
     }
 
@@ -219,7 +244,7 @@ impl Project {
                 return Err(invalid(format!("a project holds at most {MAX_PHOTOS} photos")));
             }
             let id = self.alloc_id();
-            let photo = Photo { id, path: path.clone(), managed, color: ColorOverride::default(), added: added.map(str::to_string) };
+            let photo = Photo { id, path: path.clone(), managed, color: ColorOverride::default(), added: added.map(str::to_string), album_look: true };
             self.album_mut(album)?.photos.push(photo);
             out.push(Added::New(id));
         }
@@ -320,6 +345,9 @@ impl Project {
             if a.name.trim().is_empty() || a.name.chars().count() > MAX_NAME_CHARS {
                 return Err(invalid(format!("album {} has an empty or too long name", a.id)));
             }
+            if let Some(look) = &a.look {
+                validate_look_path(look)?;
+            }
             for ph in &a.photos {
                 if ph.id == 0 || !ids.insert(ph.id) {
                     return Err(invalid(format!("duplicate or zero id {}", ph.id)));
@@ -351,6 +379,17 @@ fn validate_photo_path(path: &str, managed: bool) -> Result<()> {
         return Err(invalid(format!("managed photo path `{path}` must be relative to the project folder and stay inside it")));
     }
     Ok(())
+}
+
+/// An album look path must be a relative `.pvlook` path inside the project folder.
+pub fn validate_look_path(path: &str) -> Result<()> {
+    let ok = !path.trim().is_empty()
+        && path.chars().count() <= MAX_PATH_CHARS
+        && !path.contains(char::MIN)
+        && !is_absolute(path)
+        && !path.split(['/', '\\']).any(|c| c == ".." || c.is_empty())
+        && file_name(path).to_ascii_lowercase().ends_with(&format!(".{LOOK_EXTENSION}"));
+    if ok { Ok(()) } else { Err(invalid(format!("album look path `{path}` must be a relative .{LOOK_EXTENSION} file inside the project folder"))) }
 }
 
 // ------------------------------------------------------------------ paths
@@ -438,6 +477,23 @@ pub fn media_dir(project_path: &str, album_name: &str) -> String {
 /// Thumbnail cache: `<project dir>/<ProjectStem>.pvcache/thumbs`.
 pub fn thumb_cache_dir(project_path: &str) -> String {
     join(&join(dir_of(project_path), &format!("{}.pvcache", sanitize(file_stem(project_path)))), "thumbs")
+}
+
+/// Folder of the project's album looks: `<project dir>/<ProjectStem> Looks`.
+pub fn looks_dir(project_path: &str) -> String {
+    join(dir_of(project_path), &format!("{} Looks", sanitize(file_stem(project_path))))
+}
+
+/// An album's look file relative to the project folder: `<ProjectStem> Looks/album-<id>.pvlook`.
+pub fn look_rel_path(project_path: &str, album: u64) -> String {
+    format!("{} Looks/album-{album}.{LOOK_EXTENSION}", sanitize(file_stem(project_path)))
+}
+
+/// A project-relative path (`/`-separated, see [`Album::look`]) as a file path.
+pub fn project_file(project_path: &str, rel: &str) -> String {
+    let dir = dir_of(project_path);
+    let sep = if dir.contains('\\') && !dir.contains('/') { "\\" } else { "/" };
+    join(dir, &rel.replace(['/', '\\'], sep))
 }
 
 /// `file` relative to the project file's folder with `/` separators, if it is inside it.

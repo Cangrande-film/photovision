@@ -75,6 +75,12 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("album.export", "Export Album…", &["Project"], None),
     ("album.rename", "Rename Album…", &["Project"], None),
     ("album.delete", "Delete Album…", &["Project"], None),
+    // Album looks (`album_look_ui` fills in the album or photo and toggles).
+    ("album.look.setEnabled", "Enable Album Look", &["Project", "Album Look"], None),
+    ("photo.setAlbumLook", "Use Album Look for This Photo", &["Project", "Album Look"], None),
+    ("layer.toAlbumLook", "Move Layers to Album Look", &["Project", "Album Look"], None),
+    ("layer.fromAlbumLook", "Copy Layers from Album Look", &["Project", "Album Look"], None),
+    ("album.look.clear", "Clear Album Look…", &["Project", "Album Look"], None),
 ];
 
 /// Photoshop's Window › <panel> ids for the panels the shell already has, as `window.toggle.*`.
@@ -179,6 +185,9 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
         return r;
     }
     // Project menu: pickers and dialogs in front of the project/album commands.
+    if let Some(r) = crate::album_look_ui::menu(app, id, &params) {
+        return r;
+    }
     if let Some(r) = crate::library_ui::menu(app, id, &params) {
         return r;
     }
@@ -479,6 +488,9 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
     if let Some(e) = crate::plugin_ui::is_enabled(app, id) {
         return e;
     }
+    if let Some(e) = crate::album_look_ui::is_enabled(app, id) {
+        return e;
+    }
     if let Some(e) = crate::library_ui::is_enabled(app, id) {
         return e;
     }
@@ -533,6 +545,9 @@ fn checked(app: &PhotocraftApp, id: &str) -> Option<bool> {
         return Some(c);
     }
     if let Some(c) = crate::timeline_ui::checked(app, id) {
+        return Some(c);
+    }
+    if let Some(c) = crate::album_look_ui::checked(app, id) {
         return Some(c);
     }
     if let Some(c) = crate::clips_ui::checked(app, id) {
