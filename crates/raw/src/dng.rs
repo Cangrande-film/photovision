@@ -97,8 +97,8 @@ fn cfa(t: &Tiff, ifd: &Ifd, active: &Rect) -> Result<Cfa> {
         .collect::<Option<Vec<u8>>>()
         .ok_or_else(|| RawError::unsupported("CFA colours other than red, green and blue"))?;
     let c = Cfa { width: cols, height: rows, colors, origin_x: active.x, origin_y: active.y };
-    if !c.is_bayer() {
-        return Err(RawError::unsupported(format!("{rows}x{cols} non-Bayer CFA (e.g. X-Trans)")));
+    if !c.is_three_colour() {
+        return Err(RawError::unsupported(format!("{rows}x{cols} CFA pattern without red, green and blue sites")));
     }
     Ok(c)
 }

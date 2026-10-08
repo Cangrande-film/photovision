@@ -1,4 +1,5 @@
-//! Bayer demosaicing.
+//! Demosaicing: Bayer methods below, and [`demosaic_any`] for any periodic
+//! three-colour CFA (Fujifilm X-Trans).
 //!
 //! * **Bilinear**: each missing colour is the mean of the same-colour
 //!   neighbours in the 3×3 window.
@@ -366,6 +367,122 @@ fn ahd(p: &Padded, phase: [u8; 4], to_xyz: &Mat3, out: &mut [f32]) {
     });
 }
 
+/// A periodic colour filter pattern for [`demosaic_any`], anchored at the
+/// image origin: `colors[(y % height) * width + x % width]` (0 = R, 1 = G, 2 = B).
+pub(crate) struct Pattern {
+    pub width: usize,
+    pub height: usize,
+    pub colors: Vec<u8>,
+}
+
+impl Pattern {
+    #[inline]
+    fn at(&self, x: isize, y: isize) -> u8 {
+        let (w, h) = (self.width.max(1) as isize, self.height.max(1) as isize);
+        self.colors.get((y.rem_euclid(h) * w + x.rem_euclid(w)) as usize).copied().unwrap_or(1)
+    }
+
+    /// Taps `(dx, dy, weight)` towards the sites of colour `c` around pattern
+    /// position (`px`, `py`), grouped in rings of growing Chebyshev radius
+    /// (empty rings left out) and weighted by inverse squared distance. The
+    /// first ring is the nearest; later ones serve image borders, where the
+    /// nearer taps fall outside.
+    fn taps(&self, px: usize, py: usize, c: u8) -> Vec<Vec<(isize, isize, f32)>> {
+        let max_r = (self.width.max(self.height) + 1).clamp(2, 17) as isize;
+        (1..=max_r)
+            .map(|r| {
+                (-r..=r)
+                    .flat_map(|dy| (-r..=r).map(move |dx| (dx, dy)))
+                    .filter(|&(dx, dy)| dx.abs().max(dy.abs()) == r && self.at(px as isize + dx, py as isize + dy) == c)
+                    .map(|(dx, dy)| (dx, dy, 1.0 / (dx * dx + dy * dy) as f32))
+                    .collect::<Vec<_>>()
+            })
+            .filter(|ring| !ring.is_empty())
+            .collect()
+    }
+}
+
+/// Demosaics any periodic three-colour CFA (X-Trans and other non-Bayer
+/// patterns; it works for Bayer too) by colour-difference interpolation:
+/// green is first filled in at the red and blue sites as the inverse
+/// squared-distance weighted mean of the nearest ring of green sites; red and blue
+/// are then the interpolated green plus the same weighted mean of the
+/// colour differences (R − G or B − G) at the nearest sites of that colour.
+/// Interpolating differences rather than the colours themselves follows the
+/// constant-hue assumption (D. R. Cok, US patent 4,642,678, 1987), which
+/// keeps colour fringes small on edges. Taps that fall outside the image are
+/// skipped (the next ring out is used when a whole ring is outside), so
+/// borders need no mirroring (which would not preserve a 6×6 phase).
+pub(crate) fn demosaic_any(p: &Padded, pat: &Pattern) -> Vec<f32> {
+    let (w, h, s) = (p.w, p.h, p.stride);
+    let mut out = vec![0.0f32; w * h * 3];
+    let (pw, ph) = (pat.width.max(1), pat.height.max(1));
+    if w == 0 || h == 0 || p.data.len() < s * (h + 2 * PAD) || pat.colors.len() != pw * ph {
+        return out;
+    }
+    let raw = |x: usize, y: usize| p.data[(y + PAD) * s + PAD + x];
+    // Per pattern position: the taps for green and for each colour.
+    type Rings = Vec<Vec<(isize, isize, f32)>>;
+    let taps: Vec<[Rings; 3]> =
+        (0..pw * ph).map(|i| std::array::from_fn(|c| pat.taps(i % pw, i / pw, c as u8))).collect();
+    let own = |x: usize, y: usize| pat.colors[(y % ph) * pw + x % pw];
+    // Weighted mean of `f` over the first ring with taps inside the image.
+    let mean = |x: usize, y: usize, rings: &Rings, f: &dyn Fn(usize, usize) -> f32| -> Option<f32> {
+        for ring in rings {
+            let (mut sum, mut wsum) = (0.0f32, 0.0f32);
+            for &(dx, dy, wt) in ring {
+                let (xx, yy) = (x as isize + dx, y as isize + dy);
+                if xx >= 0 && yy >= 0 && (xx as usize) < w && (yy as usize) < h {
+                    sum += wt * f(xx as usize, yy as usize);
+                    wsum += wt;
+                }
+            }
+            if wsum > 0.0 {
+                return Some(sum / wsum);
+            }
+        }
+        None
+    };
+    // Pass 1: green everywhere.
+    let mut green = vec![0.0f32; w * h];
+    let band = par::band_rows(w);
+    par::chunks_mut(&mut green, band * w, |b, chunk| {
+        for (r, row) in chunk.chunks_exact_mut(w).enumerate() {
+            let y = b * band + r;
+            for (x, g) in row.iter_mut().enumerate() {
+                *g = if own(x, y) == 1 {
+                    raw(x, y)
+                } else {
+                    let t = &taps[(y % ph) * pw + x % pw][1];
+                    mean(x, y, t, &|xx, yy| raw(xx, yy)).unwrap_or_else(|| raw(x, y))
+                };
+            }
+        }
+    });
+    // Pass 2: red and blue from the colour differences.
+    let green = &green;
+    par::chunks_mut(&mut out, band * w * 3, |b, chunk| {
+        for (r, row) in chunk.chunks_exact_mut(w * 3).enumerate() {
+            let y = b * band + r;
+            for (x, o) in row.as_chunks_mut::<3>().0.iter_mut().enumerate() {
+                let g = green[y * w + x];
+                let me = own(x, y);
+                o[1] = g;
+                for c in [0u8, 2] {
+                    o[usize::from(c)] = if me == c {
+                        raw(x, y)
+                    } else {
+                        let t = &taps[(y % ph) * pw + x % pw][usize::from(c)];
+                        let d = mean(x, y, t, &|xx, yy| raw(xx, yy) - green[yy * w + xx]).unwrap_or(0.0);
+                        (g + d).clamp(0.0, 1.0)
+                    };
+                }
+            }
+        }
+    });
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -393,6 +510,56 @@ mod tests {
             }
         }
         10.0 * (1.0 / (se / n as f64).max(1e-12)).log10()
+    }
+
+    fn xtrans() -> Pattern {
+        // The 6×6 X-Trans arrangement (20 green, 8 red, 8 blue sites).
+        let rows = ["GGRGGB", "GGBGGR", "BRGRBG", "GGBGGR", "GGRGGB", "RBGBRG"];
+        Pattern { width: 6, height: 6, colors: rows.iter().flat_map(|r| r.bytes().map(|b| match b { b'R' => 0, b'G' => 1, _ => 2 })).collect() }
+    }
+
+    fn mosaic_any(rgb: &[[f32; 3]], w: usize, pat: &Pattern) -> Vec<f32> {
+        (0..rgb.len()).map(|i| rgb[i][pat.at((i % w) as isize, (i / w) as isize) as usize]).collect()
+    }
+
+    #[test]
+    fn any_cfa_flat_colour_is_exact() {
+        let (w, h) = (23, 17);
+        for pat in [xtrans(), Pattern { width: 2, height: 2, colors: vec![1, 0, 2, 1] }] {
+            let rgb = vec![[0.3f32, 0.5, 0.7]; w * h];
+            let out = demosaic_any(&Padded::from_plane(&mosaic_any(&rgb, w, &pat), w, h), &pat);
+            for (i, px) in out.as_chunks::<3>().0.iter().enumerate() {
+                for c in 0..3 {
+                    assert!((px[c] - rgb[i][c]).abs() < 1e-5, "pixel {i} channel {c}: {}", px[c]);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn any_cfa_smooth_gradient_quality() {
+        let (w, h) = (96, 72);
+        let rgb: Vec<[f32; 3]> = (0..w * h)
+            .map(|i| {
+                let (x, y) = ((i % w) as f32 / w as f32, (i / w) as f32 / h as f32);
+                [0.2 + 0.6 * x, 0.3 + 0.4 * y, 0.8 - 0.5 * x * y]
+            })
+            .collect();
+        let pat = xtrans();
+        let out = demosaic_any(&Padded::from_plane(&mosaic_any(&rgb, w, &pat), w, h), &pat);
+        let q = psnr(&out, &rgb, w, h, 3);
+        assert!(q > 40.0, "X-Trans PSNR {q:.1} dB");
+    }
+
+    #[test]
+    fn any_cfa_tiny_and_degenerate_inputs_do_not_panic() {
+        for (w, h) in [(1, 1), (2, 1), (1, 7), (5, 3)] {
+            let plane = vec![0.5f32; w * h];
+            assert_eq!(demosaic_any(&Padded::from_plane(&plane, w, h), &xtrans()).len(), w * h * 3);
+        }
+        // A pattern whose colour list does not match its size is ignored.
+        let bad = Pattern { width: 6, height: 6, colors: vec![1; 5] };
+        assert_eq!(demosaic_any(&Padded::from_plane(&[0.5; 4], 2, 2), &bad), vec![0.0; 12]);
     }
 
     #[test]

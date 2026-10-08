@@ -1,7 +1,9 @@
 //! Truncated and corrupted raw files must fail cleanly, never panic, and
 //! never allocate beyond the limits.
 
-use photocraft_raw::testgen::{Cr2Spec, DngSpec, DngStorage, mosaic, orf, rw2, scene, sony_craw, tiff_ep};
+use photocraft_raw::testgen::{
+    Cr2Spec, DngSpec, DngStorage, RafSpec, XTRANS, cr3, cr3_cmp1, mosaic, mosaic_pattern, orf, rw2, scene, sony_craw, tiff_ep,
+};
 use photocraft_raw::*;
 
 fn samples() -> Vec<Vec<u8>> {
@@ -46,6 +48,30 @@ fn samples() -> Vec<Vec<u8>> {
     out.push(sony_craw(64, 6, &codes, [8000, 10400, 12900, 14100]));
     out.push(rw2(30, 8, &mosaic(&scene(30, 8), 30, [0, 1, 1, 2], 128, 4095), 12));
     out.push(orf(w, h, &cfa));
+    // Fujifilm RAF: Bayer 12-bit packed and X-Trans 16-bit.
+    for (bits, layout) in [(12, None), (16, Some(RafSpec::layout_for(&XTRANS)))] {
+        let data = match layout {
+            Some(_) => mosaic_pattern(&scene(w, h), w, &XTRANS, 6, 256, 4000),
+            None => cfa.clone(),
+        };
+        out.push(
+            RafSpec {
+                width: w,
+                height: h,
+                data,
+                bits,
+                xtrans_layout: layout,
+                black: vec![256; 4],
+                wb_grb: [302, 604, 453],
+                crop: (1, 2, 10, 20),
+                orientation: 8,
+                truncate_data_to: None,
+            }
+            .build(),
+        );
+    }
+    // Canon CR3 container.
+    out.push(cr3("Canon EOS Synthetic", Some((640, 480)), cr3_cmp1(64, 48, 14, 3)));
     out
 }
 
@@ -64,6 +90,12 @@ fn exercise(b: &[u8]) {
 fn originals_develop() {
     for (i, b) in samples().iter().enumerate() {
         let d = develop(b, &DevelopOptions::default());
+        if identify(b) == Some(RawFormat::Cr3) {
+            // CRX sensor data is not decoded; the container must parse and preview.
+            assert!(matches!(d, Err(RawError::Unsupported(_))), "sample {i}: {:?}", d.err());
+            assert!(embedded_preview(b).is_some(), "sample {i}");
+            continue;
+        }
         assert!(d.is_ok(), "sample {i}: {:?}", d.err());
     }
 }

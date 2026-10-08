@@ -115,7 +115,7 @@ pub(crate) fn list_images(dir: &str) -> Result<Vec<String>> {
 /// Extensions the batch commands pick up from a folder.
 pub(crate) const OPENABLE: &[&str] = &[
     "psd", "psb", "pcraft", "pvision", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "tga", "exr", "hdr", "qoi", "ico", "pnm", "ppm", "pgm",
-    "dng", "cr2", "nef", "nrw", "arw", "pef",
+    "dng", "cr2", "cr3", "nef", "nrw", "arw", "pef", "orf", "rw2", "raf",
 ];
 
 pub(crate) fn file_name(path: &str) -> String {

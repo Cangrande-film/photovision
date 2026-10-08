@@ -10,9 +10,10 @@
 //!   and smart-object data) and re-export writes them back; text, shape and
 //!   smart-object layers also keep their pixels as the cached raster, and fill
 //!   layers keep Photoshop's rendering in `Layer::fill_cache`.
-//! * Camera raws (DNG, CR2, uncompressed / lossless TIFF-EP raws) via
-//!   `photocraft-raw`, developed into a 16-bit ProPhoto RGB "Background"
-//!   layer; unsupported raw variants fall back to the embedded JPEG preview.
+//! * Camera raws (DNG, CR2, uncompressed / lossless TIFF-EP raws, Sony cRAW,
+//!   RW2, ORF, uncompressed Fujifilm RAF incl. X-Trans) via `photocraft-raw`,
+//!   developed into a 16-bit ProPhoto RGB "Background" layer; unsupported raw
+//!   variants (CR3, compressed NEF / RAF…) fall back to the embedded JPEG preview.
 //! * Every other format goes through `photocraft-codecs` as a single
 //!   "Background" layer (depth and Gray/RGB/CMYK model preserved).
 //!

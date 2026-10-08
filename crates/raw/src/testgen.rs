@@ -381,6 +381,8 @@ pub struct DngSpec {
     pub data: Vec<u16>,
     pub bits: u16,
     pub cfa: [u8; 4],
+    /// A larger CFA pattern (columns, rows, row-major colours) replacing `cfa`, e.g. X-Trans.
+    pub cfa_pattern: Option<(u16, u16, Vec<u8>)>,
     pub storage: DngStorage,
     pub big_endian: bool,
     pub black: Vec<u32>,
@@ -415,6 +417,7 @@ impl DngSpec {
             data,
             bits: 16,
             cfa: [0, 1, 1, 2],
+            cfa_pattern: None,
             storage: DngStorage::Strips { rows: height },
             big_endian: false,
             black: vec![0],
@@ -480,8 +483,16 @@ impl DngSpec {
             (50714, Val::Long(self.black.clone())),
         ];
         if self.samples == 1 {
-            raw.push((33421, Val::Short(vec![2, 2])));
-            raw.push((33422, Val::Byte(self.cfa.to_vec())));
+            match &self.cfa_pattern {
+                Some((cols, rows, colors)) => {
+                    raw.push((33421, Val::Short(vec![*rows, *cols])));
+                    raw.push((33422, Val::Byte(colors.clone())));
+                }
+                None => {
+                    raw.push((33421, Val::Short(vec![2, 2])));
+                    raw.push((33422, Val::Byte(self.cfa.to_vec())));
+                }
+            }
             raw.push((50710, Val::Byte(vec![0, 1, 2])));
             raw.push((50711, Val::Short(vec![1])));
         }
@@ -993,6 +1004,243 @@ pub fn orf(width: usize, height: usize, data: &[u16]) -> Vec<u8> {
     b
 }
 
+// ---------------------------------------------------------------- Fujifilm RAF
+
+/// The 6×6 X-Trans arrangement (colours row-major from the pattern origin).
+pub const XTRANS: [u8; 36] = [
+    1, 1, 0, 1, 1, 2, //
+    1, 1, 2, 1, 1, 0, //
+    2, 0, 1, 0, 2, 1, //
+    1, 1, 2, 1, 1, 0, //
+    1, 1, 0, 1, 1, 2, //
+    0, 2, 1, 2, 0, 1,
+];
+
+/// A minimal baseline-JPEG stand-in (SOI, optional EXIF APP1, SOF0 `width × height`, EOI).
+pub fn tiny_jpeg(width: u16, height: u16, exif: Option<Vec<u8>>) -> Vec<u8> {
+    let mut j = vec![0xFF, 0xD8];
+    if let Some(e) = exif {
+        j.extend_from_slice(&[0xFF, 0xE1]);
+        j.extend_from_slice(&((e.len() + 8) as u16).to_be_bytes());
+        j.extend_from_slice(b"Exif\0\0");
+        j.extend_from_slice(&e);
+    }
+    j.extend_from_slice(&[0xFF, 0xC0, 0x00, 0x0B, 8]);
+    j.extend_from_slice(&height.to_be_bytes());
+    j.extend_from_slice(&width.to_be_bytes());
+    j.extend_from_slice(&[1, 1, 0x11, 0, 0xFF, 0xD9]);
+    j
+}
+
+/// An EXIF TIFF with Make, Model and Orientation.
+pub fn exif_tiff(make: &str, model: &str, orientation: u16) -> Vec<u8> {
+    let mut t = TiffBuilder::default();
+    let i = t.ifd(vec![(271, Val::Ascii(make.into())), (272, Val::Ascii(model.into())), (274, Val::Short(vec![orientation]))]);
+    t.chain = vec![i];
+    t.build()
+}
+
+/// A synthetic Fujifilm RAF.
+#[derive(Debug, Clone)]
+pub struct RafSpec {
+    pub width: usize,
+    pub height: usize,
+    /// Row-major sensor values.
+    pub data: Vec<u16>,
+    /// 12: two samples packed in three bytes (LSB first); anything else: 16-bit little-endian.
+    pub bits: u32,
+    /// The XTransLayout record (stored order: reversed from the data origin), or `None` for Bayer.
+    pub xtrans_layout: Option<[u8; 36]>,
+    /// FujiIFD BlackLevel values.
+    pub black: Vec<u32>,
+    /// FujiIFD WB_GRBLevels.
+    pub wb_grb: [u32; 3],
+    /// (top, left, height, width) of the image area.
+    pub crop: (u16, u16, u16, u16),
+    pub orientation: u16,
+    /// Store only this many bytes of sensor data (a compressed-file stand-in).
+    pub truncate_data_to: Option<usize>,
+}
+
+impl RafSpec {
+    /// The layout record for a pattern given from the data origin (`XTRANS`-style).
+    pub fn layout_for(pattern: &[u8; 36]) -> [u8; 36] {
+        std::array::from_fn(|i| pattern[35 - i])
+    }
+
+    pub fn build(&self) -> Vec<u8> {
+        let mut raw: Vec<u8> = if self.bits == 12 {
+            self.data
+                .chunks(2)
+                .flat_map(|p| {
+                    let (a, b) = (p[0], p.get(1).copied().unwrap_or(0));
+                    [(a & 0xFF) as u8, ((a >> 8) & 0x0F) as u8 | ((b & 0x0F) << 4) as u8, (b >> 4) as u8]
+                })
+                .collect()
+        } else {
+            self.data.iter().flat_map(|v| v.to_le_bytes()).collect()
+        };
+        if let Some(n) = self.truncate_data_to {
+            raw.truncate(n);
+        }
+        let long = |v: u32| v.to_le_bytes().to_vec();
+        let longs = |v: &[u32]| v.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>();
+        let mut container = b"II*\0".to_vec();
+        container.extend_from_slice(&8u32.to_le_bytes());
+        container.extend_from_slice(&relative_ifd(&[(0xF000, 13, 1, long(26))], 8));
+        container.extend_from_slice(&relative_ifd(
+            &[
+                (0xF001, 4, 1, long(self.width as u32)),
+                (0xF002, 4, 1, long(self.height as u32)),
+                (0xF003, 4, 1, long(self.bits)),
+                (0xF007, 4, 1, long(2048)),
+                (0xF008, 4, 1, long(raw.len() as u32)),
+                (0xF00A, 4, self.black.len() as u32, longs(&self.black)),
+                (0xF00E, 4, 3, longs(&self.wb_grb)),
+            ],
+            26,
+        ));
+        container.resize(2048, 0);
+        container.extend_from_slice(&raw);
+
+        let mut meta: Vec<u8> = Vec::new();
+        let mut records = 0u32;
+        let mut rec = |tag: u16, payload: Vec<u8>| {
+            meta.extend_from_slice(&tag.to_be_bytes());
+            meta.extend_from_slice(&(payload.len() as u16).to_be_bytes());
+            meta.extend_from_slice(&payload);
+            records += 1;
+        };
+        let be = |v: &[u16]| v.iter().flat_map(|x| x.to_be_bytes()).collect::<Vec<u8>>();
+        rec(0x0100, be(&[self.height as u16, self.width as u16]));
+        rec(0x0110, be(&[self.crop.0, self.crop.1]));
+        rec(0x0111, be(&[self.crop.2, self.crop.3]));
+        if let Some(l) = self.xtrans_layout {
+            rec(0x0131, l.to_vec());
+        }
+        let mut block = records.to_be_bytes().to_vec();
+        block.extend_from_slice(&meta);
+
+        let jpeg = tiny_jpeg(160, 120, Some(exif_tiff("FUJIFILM", "X-Synthetic", self.orientation)));
+        let mut b = b"FUJIFILMCCD-RAW 0201FF000000".to_vec();
+        b.extend_from_slice(b"X-Synthetic");
+        b.resize(60, 0);
+        b.extend_from_slice(b"0100");
+        b.resize(148, 0);
+        let jpeg_at = b.len();
+        b.extend_from_slice(&jpeg);
+        let meta_at = b.len();
+        b.extend_from_slice(&block);
+        let cfa_at = b.len();
+        b.extend_from_slice(&container);
+        for (at, v) in [(84, jpeg_at), (88, jpeg.len()), (92, meta_at), (96, block.len()), (100, cfa_at), (104, container.len())] {
+            b[at..at + 4].copy_from_slice(&(v as u32).to_be_bytes());
+        }
+        b
+    }
+}
+
+// ---------------------------------------------------------------- Canon CR3
+
+fn bmff_box(typ: &[u8; 4], payload: &[u8]) -> Vec<u8> {
+    let mut b = ((payload.len() + 8) as u32).to_be_bytes().to_vec();
+    b.extend_from_slice(typ);
+    b.extend_from_slice(payload);
+    b
+}
+
+fn bmff_uuid(uuid: [u8; 16], payload: &[u8]) -> Vec<u8> {
+    let mut p = uuid.to_vec();
+    p.extend_from_slice(payload);
+    bmff_box(b"uuid", &p)
+}
+
+/// One `trak` whose `CRAW` sample entry holds `child` and whose sample is at `offset`.
+fn cr3_track(child: &[u8], offset: u64, size: u32) -> Vec<u8> {
+    let mut entry = vec![0u8; 82];
+    entry.extend_from_slice(child);
+    let mut stsd = vec![0, 0, 0, 0, 0, 0, 0, 1];
+    stsd.extend_from_slice(&bmff_box(b"CRAW", &entry));
+    let mut stsz = vec![0u8; 4];
+    stsz.extend_from_slice(&0u32.to_be_bytes());
+    stsz.extend_from_slice(&1u32.to_be_bytes());
+    stsz.extend_from_slice(&size.to_be_bytes());
+    let mut co64 = vec![0, 0, 0, 0, 0, 0, 0, 1];
+    co64.extend_from_slice(&offset.to_be_bytes());
+    let stbl = [bmff_box(b"stsd", &stsd), bmff_box(b"stsz", &stsz), bmff_box(b"co64", &co64)].concat();
+    let minf = bmff_box(b"stbl", &stbl);
+    let mdia = bmff_box(b"minf", &minf);
+    bmff_box(b"trak", &bmff_box(b"mdia", &mdia))
+}
+
+/// The `CMP1` box of a CRX image.
+pub fn cr3_cmp1(width: u32, height: u32, bits: u8, levels: u8) -> Vec<u8> {
+    let mut p = vec![0u8; 52];
+    p[0..2].copy_from_slice(&[0xFF, 0x00]);
+    p[2..4].copy_from_slice(&0x30u16.to_be_bytes());
+    p[4..6].copy_from_slice(&0x100u16.to_be_bytes());
+    p[8..12].copy_from_slice(&width.to_be_bytes());
+    p[12..16].copy_from_slice(&height.to_be_bytes());
+    p[16..20].copy_from_slice(&width.to_be_bytes());
+    p[20..24].copy_from_slice(&height.to_be_bytes());
+    p[24] = bits;
+    p[25] = 0x40;
+    p[26] = levels;
+    bmff_box(b"CMP1", &p)
+}
+
+/// A synthetic CR3: `CMT1` (make / model), a `THMB` thumbnail, a full-size JPEG
+/// track (when `full_jpeg` is set), a CRX raw track with `cmp1`, a `PRVW` preview.
+/// The JPEGs are [`tiny_jpeg`] stand-ins of the given sizes; the raw data is filler.
+pub fn cr3(model: &str, full_jpeg: Option<(u16, u16)>, cmp1: Vec<u8>) -> Vec<u8> {
+    cr3_with_jpeg(model, full_jpeg.map(|(w, h)| tiny_jpeg(w, h, None)), cmp1)
+}
+
+/// [`cr3`] with the full-size JPEG track holding `full` (e.g. a real, decodable JPEG).
+pub fn cr3_with_jpeg(model: &str, full: Option<Vec<u8>>, cmp1: Vec<u8>) -> Vec<u8> {
+    const CANON: [u8; 16] = [0x85, 0xc0, 0xb6, 0x87, 0x82, 0x0f, 0x11, 0xe0, 0x81, 0x11, 0xf4, 0xce, 0x46, 0x2b, 0x6a, 0x48];
+    const PREVIEW: [u8; 16] = [0xea, 0xf4, 0x2b, 0x5e, 0x1c, 0x98, 0x4b, 0x88, 0xb9, 0xfb, 0xb7, 0xdc, 0x40, 0x6e, 0x4d, 0x16];
+    let thumb = tiny_jpeg(160, 120, None);
+    let preview = tiny_jpeg(1620, 1080, None);
+    let raw = vec![0x5Au8; 64];
+    let jpeg_header = |w: u16, h: u16, len: usize, len_at: usize| {
+        let mut p = vec![0u8; 16];
+        p[4..6].copy_from_slice(&w.to_be_bytes());
+        p[6..8].copy_from_slice(&h.to_be_bytes());
+        p[len_at..len_at + 4].copy_from_slice(&(len as u32).to_be_bytes());
+        p
+    };
+    let build = |mdat_at: u64| {
+        let mut t = TiffBuilder::default();
+        let i = t.ifd(vec![(271, Val::Ascii("Canon".into())), (272, Val::Ascii(model.into())), (274, Val::Short(vec![1]))]);
+        t.chain = vec![i];
+        let mut thmb = jpeg_header(160, 120, thumb.len(), 8);
+        thmb.extend_from_slice(&thumb);
+        let canon = [bmff_box(b"CNCV", b"CanonCR3_001/00.09.00/00.00.00"), bmff_box(b"CMT1", &t.build()), bmff_box(b"THMB", &thmb)].concat();
+        let mut moov = bmff_uuid(CANON, &canon);
+        let mut at = mdat_at + 8;
+        if let Some(f) = &full {
+            moov.extend_from_slice(&cr3_track(&bmff_box(b"JPEG", &[0; 4]), at, f.len() as u32));
+            at += f.len() as u64;
+        }
+        moov.extend_from_slice(&cr3_track(&cmp1, at, raw.len() as u32));
+        let mut prvw = jpeg_header(1620, 1080, preview.len(), 12);
+        prvw.extend_from_slice(&preview);
+        let mut pv = vec![0u8; 8];
+        pv.extend_from_slice(&bmff_box(b"PRVW", &prvw));
+        let mut ftyp = b"crx ".to_vec();
+        ftyp.extend_from_slice(&1u32.to_be_bytes());
+        ftyp.extend_from_slice(b"crx isom");
+        [bmff_box(b"ftyp", &ftyp), bmff_box(b"moov", &moov), bmff_uuid(PREVIEW, &pv)].concat()
+    };
+    let head_len = build(0).len() as u64;
+    let mut b = build(head_len);
+    let mut mdat = full.clone().unwrap_or_default();
+    mdat.extend_from_slice(&raw);
+    b.extend_from_slice(&bmff_box(b"mdat", &mdat));
+    b
+}
+
 // ---------------------------------------------------------------- scenes
 
 /// A smooth, colourful synthetic scene as linear RGB in 0..1.
@@ -1001,6 +1249,20 @@ pub fn scene(width: usize, height: usize) -> Vec<[f32; 3]> {
         .map(|i| {
             let (x, y) = ((i % width) as f32 / width.max(1) as f32, (i / width) as f32 / height.max(1) as f32);
             [0.1 + 0.7 * x, 0.15 + 0.5 * (1.0 - y) * x + 0.2 * y, 0.6 - 0.4 * y + 0.2 * x]
+        })
+        .collect()
+}
+
+/// Mosaics linear RGB through any periodic CFA (`pattern` row-major colours,
+/// `pw` cells wide, anchored at data (0, 0)) into sensor values.
+pub fn mosaic_pattern(rgb: &[[f32; 3]], width: usize, pattern: &[u8], pw: usize, black: u16, white: u16) -> Vec<u16> {
+    let ph = pattern.len() / pw;
+    rgb.iter()
+        .enumerate()
+        .map(|(i, p)| {
+            let (x, y) = (i % width, i / width);
+            let c = pattern[(y % ph) * pw + x % pw] as usize;
+            (f32::from(black) + p[c].clamp(0.0, 1.0) * f32::from(white - black)).round() as u16
         })
         .collect()
 }

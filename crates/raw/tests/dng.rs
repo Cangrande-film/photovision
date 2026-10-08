@@ -276,8 +276,11 @@ fn smooth_scene_develops_with_every_method() {
 #[test]
 fn unsupported_variants_say_so() {
     let mut spec = DngSpec::cfa(8, 8, vec![0; 64]);
-    spec.cfa = [0, 1, 2, 1]; // not Bayer
+    spec.cfa = [0, 1, 1, 0]; // no blue sites
     assert!(matches!(decode(&spec.build(), &Limits::default()), Err(RawError::Unsupported(_))));
+    // Non-Bayer three-colour patterns go through the generic demosaic.
+    spec.cfa = [0, 1, 2, 1];
+    assert!(develop(&spec.build(), &DevelopOptions::default()).is_ok());
 }
 
 #[test]
