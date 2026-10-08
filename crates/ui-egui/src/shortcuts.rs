@@ -249,6 +249,10 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
         }
         return;
     }
+    // Library: Delete removes the selected photos (after asking).
+    if focus != Focus::Text && crate::library_ui::keys(app, ctx) {
+        return;
+    }
     if focus == Focus::Text {
         // A focused field keeps its typing and editing keys; menu shortcuts (⌘J, ⌘S, F7…) still
         // fire, as in Photoshop.

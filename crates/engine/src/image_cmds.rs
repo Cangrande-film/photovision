@@ -320,18 +320,27 @@ fn convert_depth(s: &mut Session, depth: SampleType) -> Result<Value> {
         return Ok(Value::Null);
     }
     s.edit("Bit Depth", |doc, _| {
-        for_each_surface(&mut doc.layers, true, &mut |surf, _| {
-            let f = surf.format().with_sample(depth);
-            *surf = surf.convert(f);
-        });
-        for ch in doc.channels.iter_mut().chain(doc.quick_mask.as_mut()) {
-            let f = ch.surface.format().with_sample(depth);
-            ch.surface = ch.surface.convert(f);
-        }
-        doc.depth = depth;
+        set_depth(doc, depth);
         Ok(())
     })?;
     Ok(Value::Null)
+}
+
+/// Stores every surface of `doc` (layers, masks, channels, quick mask) at `depth`; the values
+/// keep their encoding (8/16 → 32-bit is lossless).
+pub(crate) fn set_depth(doc: &mut Document, depth: SampleType) {
+    if doc.depth == depth {
+        return;
+    }
+    for_each_surface(&mut doc.layers, true, &mut |surf, _| {
+        let f = surf.format().with_sample(depth);
+        *surf = surf.convert(f);
+    });
+    for ch in doc.channels.iter_mut().chain(doc.quick_mask.as_mut()) {
+        let f = ch.surface.format().with_sample(depth);
+        ch.surface = ch.surface.convert(f);
+    }
+    doc.depth = depth;
 }
 
 /// Image → Duplicate.

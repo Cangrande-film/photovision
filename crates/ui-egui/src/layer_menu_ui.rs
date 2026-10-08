@@ -73,6 +73,16 @@ pub fn entries(l: &Layer, multi: bool, has_selection: bool) -> Vec<Entry> {
     v
 }
 
+/// PhotoVision: Move to / Copy from Album Look for a layer of a project photo whose album look
+/// group is `group` (`inside`: the layer is in that group). None for the group itself.
+pub fn album_look_entries(l: &Layer, group: Option<photocraft_doc::LayerId>, inside: bool) -> Vec<Entry> {
+    match group {
+        Some(g) if g != l.id && inside => vec![Some((tl!("Copy from Album Look"), "layer.fromAlbumLook")), None],
+        Some(g) if g != l.id => vec![Some((tl!("Move to Album Look"), "layer.toAlbumLook")), None],
+        _ => Vec::new(),
+    }
+}
+
 /// Render the menu. Pushes `(command, params)` actions; `Value::Null` params mean "invoke like the
 /// menu item" (opens the command's dialog when it has one).
 pub fn show(app: &crate::PhotocraftApp, ui: &mut egui::Ui, l: &Layer, on_set: bool, actions: &mut Vec<(String, Value)>) -> bool {
@@ -80,7 +90,17 @@ pub fn show(app: &crate::PhotocraftApp, ui: &mut egui::Ui, l: &Layer, on_set: bo
     let mut rename = false;
     let mut last_sep = true;
     let has_selection = app.session.active().is_some_and(|s| s.doc.selection.is_some());
-    for e in entries(l, on_set, has_selection) {
+    let mut list = entries(l, on_set, has_selection);
+    let group = app.session.active_index().and_then(|i| app.session.album_look_group(i));
+    let inside = app.session.active().zip(group).is_some_and(|(d, g)| {
+        let (Some(p), Some(gp)) = (d.doc.path_of(l.id), d.doc.path_of(g)) else { return false };
+        p.len() > gp.len() && p.starts_with(&gp)
+    });
+    let extra = album_look_entries(l, group, inside);
+    // After Blending Options and its separator.
+    let at = list.len().min(2);
+    list.splice(at..at, extra);
+    for e in list {
         match e {
             None => {
                 if !last_sep {

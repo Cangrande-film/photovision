@@ -1996,3 +1996,110 @@
 	Details	詳細資訊
 
 	Rendering mode	渲染模式
+# PhotoVision Library (projects, albums, colour management)
+	Project	專案
+	On	開啟
+	Library	圖庫
+	Albums	相簿
+	New Project…	新增專案…
+	Open Project…	開啟專案…
+	Save Project	儲存專案
+	Close Project	關閉專案
+	Project Settings…	專案設定…
+	New Album…	新增相簿…
+	Import Photos…	匯入相片…
+	Export Album…	轉存相簿…
+	Rename Album…	重新命名相簿…
+	Delete Album…	刪除相簿…
+	Input color space	輸入色彩空間
+	Photo color space	相片色彩空間
+	Output color space	輸出色彩空間
+	Rendering intent	演色意圖
+	Black point compensation	黑場補償
+	Add (reference in place)	加入（參照原位置）
+	Album {n}	相簿 {n}
+	Album: {name}	相簿：{name}
+	Album:	相簿：
+	Albums group the photos of a project.	相簿用來整理專案中的相片。
+	An album export is already running	已有相簿正在轉存
+	Auto (embedded profile)	自動（內嵌描述檔）
+	Choose…	選擇…
+	Color management for every photo in “{name}”. Albums and photos can override each setting.	「{name}」中所有相片的色彩管理。相簿與相片可覆寫每項設定。
+	Copies the files next to the project, so it can move as one folder.	將檔案拷貝到專案旁，讓專案可整個資料夾一起移動。
+	Copy into project folder	拷貝到專案資料夾
+	Couldn't rebuild from the original	無法從原始檔重建
+	Create an album to start	建立相簿以開始
+	Delete the album “{name}” from the project?	要從專案刪除相簿「{name}」嗎？
+	Do you want to save the changes to the project “{name}” before closing it?	關閉專案「{name}」前要儲存變更嗎？
+	Do you want to save the changes to the project “{name}” before quitting?	結束前要儲存專案「{name}」的變更嗎？
+	Each photo is flattened and converted to its Output color space.	每張相片都會影像平面化，並轉換為其輸出色彩空間。
+	Edited	已編輯
+	File not found: {path}	找不到檔案：{path}
+	Files:	檔案：
+	Folder:	資料夾：
+	Format:	格式：
+	Import photos, or drop image files here.	匯入相片，或將影像檔拖放到這裡。
+	Inherit ({value})	繼承（{value}）
+	Input → Photo → Output color space	輸入 → 相片 → 輸出色彩空間
+	Missing	遺失
+	Monitor: {profile}	顯示器：{profile}
+	New album	新相簿
+	No albums yet	尚無相簿
+	No photos in this album yet	此相簿尚無相片
+	No project is open.	沒有開啟的專案。
+	Opened photo	已開啟相片
+	Photo: {name}	相片：{name}
+	Photos open in the Input space and are edited in the Photo space; the Output space is used for export and soft-proofed on screen.	相片以輸入空間開啟並在相片空間中編輯；輸出空間用於轉存，並在螢幕上進行螢幕校樣。
+	Project: {name}	專案：{name}
+	Projects need the desktop app (there is no file system here)	專案需要桌面應用程式（這裡沒有檔案系統）
+	Quality:	品質：
+	Re-read the original files; layers above the bottom one are kept	重新讀取原始檔案；最底層之上的圖層都會保留
+	Rebuild from original	從原始檔重建
+	Relink…	重新連結…
+	Remove from Project…	從專案移除…
+	Replace existing files	取代現有檔案
+	Select an album first	請先選取相簿
+	Set in Edit › Color Settings › Monitor Profile	於「編輯 › 顏色設定 › 顯示器描述檔」中設定
+	The files on disk are kept, and so are their edits.	磁碟上的檔案及其編輯內容都會保留。
+	The photos stay where they are; the project points to them.	相片保留在原處，專案會參照它們。
+	…and {n} more	…以及另外 {n} 個
+@plural	{n} photo|{n} photos	{n} 張相片
+@plural	{n} album|{n} albums	{n} 個相簿
+@plural	{n} file|{n} files	{n} 個檔案
+@plural	Imported {n} photo|Imported {n} photos	已匯入 {n} 張相片
+# PhotoVision Clips bar (the album filmstrip in the Edit module)
+	Clips	片段
+	Previous Photo	上一張相片
+	Next Photo	下一張相片
+	Hide Clips	隱藏片段
+	Expand Clips	展開片段
+	Collapse Clips	收合片段
+	Reveal in Library	在圖庫中顯示
+# PhotoVision album looks
+	Album Look	相簿風格
+	Enable Album Look	啟用相簿風格
+	Use Album Look for This Photo	此相片使用相簿風格
+	Move Layers to Album Look	將圖層移到相簿風格
+	Copy Layers from Album Look	從相簿風格拷貝圖層
+	Clear Album Look…	清除相簿風格…
+	Move to Album Look	移到相簿風格
+	Copy from Album Look	從相簿風格拷貝
+	Look	風格
+	No look	無風格
+	Open a photo of an album, or select an album in the Library	請開啟某個相簿中的相片，或在圖庫中選取一個相簿
+	Open a project photo, or select one photo in the Library	請開啟一張專案相片，或在圖庫中選取一張相片
+@plural	Shared by the {n} photo in {album}|Shared by all {n} photos in {album}	由 {album} 中全部 {n} 張相片共用
+	The album look applies after this photo's own layers. Edit its layers here and every photo of the album follows; hide it to bypass it for this photo.	相簿風格在此相片自身的圖層之後套用。在此編輯其圖層，相簿中的每張相片都會隨之改變；隱藏它可讓此相片略過相簿風格。
+	Applied to every photo in {album}, after each photo's own edits.	在 {album} 中每張相片自身的編輯之後套用於該相片。
+	Show the album look on the album's photos	在相簿的相片上顯示相簿風格
+	No layers yet. In Edit, select adjustment layers and choose Move to Album Look (Layers panel menu or Project › Album Look).	尚無圖層。在「編輯」中選取調整圖層，然後選擇「移到相簿風格」（圖層面板選單或 專案 › 相簿風格）。
+	Layers (top first)	圖層（由上而下）
+@plural	{n} photo bypasses the look|{n} photos bypass the look	{n} 張相片略過了風格
+	Remove every layer of the album look	移除相簿風格的所有圖層
+	Use album look	使用相簿風格
+	Off: the album look is bypassed for this photo	關閉：此相片略過相簿風格
+	{album} has no album look yet.	{album} 尚無相簿風格。
+	The album look of {album} is turned off.	{album} 的相簿風格已關閉。
+@plural	Album look of {album}: {n} layer|Album look of {album}: {n} layers	{album} 的相簿風格：{n} 個圖層
+	Clear the album look of “{name}”?	清除「{name}」的相簿風格？
+	Every photo of the album loses it. This can't be undone.	相簿中的每張相片都會失去它。此操作無法還原。

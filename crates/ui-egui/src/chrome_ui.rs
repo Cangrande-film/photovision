@@ -110,6 +110,11 @@ fn profile_name(doc: &Document) -> String {
 /// Status bar body (Pro): zoom %, the chosen info field and its ">" menu, then status messages.
 pub fn status_bar_pro(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
+    if let Some(text) = crate::library_ui::status_text(app) {
+        ui.label(RichText::new(text).color(t.text_dim).size(12.0));
+        status_message(app, ui);
+        return;
+    }
     let (Some(st), Some(i)) = (app.session.active(), app.session.active_index()) else {
         ui.label(RichText::new(tl!("No document")).color(t.text_dim));
         return;
@@ -138,12 +143,34 @@ pub fn status_bar_pro(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             }
         }
     });
+    if let Some(p) = pipeline_text(app, i) {
+        let (r, _) = ui.allocate_exact_size(vec2(17.0, 16.0), Sense::hover());
+        ui.painter().line_segment([r.center_top(), r.center_bottom()], Stroke::new(1.0, t.separator));
+        ui.label(RichText::new(p).color(t.text_dim).size(12.0)).on_hover_text(tl!("Input → Photo → Output color space"));
+    }
+    status_message(app, ui);
+}
+
+/// The last status message after a separator (errors in the warning colour).
+fn status_message(app: &PhotocraftApp, ui: &mut egui::Ui) {
+    let t = Tokens::get(ui.ctx());
     if !app.ui.status.is_empty() {
         let (r, _) = ui.allocate_exact_size(vec2(17.0, 16.0), Sense::hover());
         ui.painter().line_segment([r.center_top(), r.center_bottom()], Stroke::new(1.0, t.separator));
         let is_err = app.ui.status_error || app.ui.status.starts_with("Couldn");
         ui.label(RichText::new(&app.ui.status).color(if is_err { t.warning } else { t.text_faint }));
     }
+}
+
+/// "Input → Photo → Output" of document `index` when it has a colour pipeline (project photos,
+/// and files opened through one): `Auto → ACEScg → Rec.709 (BT.1886)`.
+pub fn pipeline_text(app: &PhotocraftApp, index: usize) -> Option<String> {
+    let p = &app.session.doc_pipeline(index)?.pipeline;
+    let input = match &p.input {
+        photocraft_engine::color_pipeline::InputSpace::Auto => tl!("Auto").to_string(),
+        photocraft_engine::color_pipeline::InputSpace::Space(s) => s.label(),
+    };
+    Some(format!("{input} → {} → {}", p.working.label(), p.output.label()))
 }
 
 /// Home button at the very start of Photoshop 2026's options bar: toggles the Home (start)

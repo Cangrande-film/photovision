@@ -167,11 +167,11 @@ pub fn display_lut_with(c: &ColorState, doc: &Document, size: usize, include_hdr
     let base: Box<dyn Fn([f32; 3]) -> [f32; 3]> = match kind {
         ProofKind::Profile => {
             let t = if pv.enabled {
-                Transform::proof(&src, &setup.profile, &mon, setup.intent, setup.bpc, setup.simulate_paper)
+                Transform::proof(&src, &setup.profile, &mon, setup.intent, setup.bpc, setup.simulate_paper).map_err(err)?
             } else {
-                Transform::new(&src, &mon, crate::display_color::DISPLAY_INTENT, crate::display_color::DISPLAY_BPC)
-            }
-            .map_err(err)?;
+                // The colour pipeline's output proof, when the document has one.
+                c.plain_display_transform(doc, &src, &mon)?
+            };
             Box::new(move |v| eval3(&t, &v))
         }
         ProofKind::Plate(_) | ProofKind::CmyPlate => {

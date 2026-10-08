@@ -148,6 +148,17 @@ pub fn read_manifest(bytes: &[u8]) -> Result<Manifest> {
     store::read_manifest(&src, &LoadOptions::default())
 }
 
+/// The document's embedded ICC profile, if any (fast: no tiles are decoded). The stored
+/// thumbnail is in this profile's colours.
+pub fn read_icc_profile(bytes: &[u8]) -> Result<Option<Vec<u8>>> {
+    let src = store::ZipSource::new(bytes)?;
+    let m = store::read_manifest(&src, &LoadOptions::default())?;
+    match m.document.icc_profile {
+        Some(h) => store::read_blob(&src, &h).map(|b| Some(b.to_vec())),
+        None => Ok(None),
+    }
+}
+
 /// The embedded thumbnail, if present (PNG bytes).
 pub fn read_thumbnail(bytes: &[u8]) -> Result<Option<Vec<u8>>> {
     let src = store::ZipSource::new(bytes)?;

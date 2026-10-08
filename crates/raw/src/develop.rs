@@ -3,7 +3,7 @@
 //! exposure, gamma 1.8 encode to 16 bits, orientation.
 
 use crate::color::{self, Mat3};
-use crate::demosaic::{Demosaic, PAD, Padded, demosaic};
+use crate::demosaic::{Demosaic, PAD, Padded, Pattern, demosaic, demosaic_any};
 use crate::error::{RawError, Result};
 use crate::sensor::Sensor;
 use crate::{Limits, RawFormat, par};
@@ -190,8 +190,13 @@ pub fn develop_sensor(s: &Sensor, opts: &DevelopOptions) -> Result<Developed> {
 
     let (w, h) = (c.width, c.height);
     let band = par::band_rows(w);
+    if let Some(cfa) = &s.cfa
+        && !cfa.is_three_colour()
+    {
+        return Err(RawError::unsupported(format!("{}x{} CFA pattern without red, green and blue sites", cfa.width, cfa.height)));
+    }
     let mut rgb: Vec<f32>;
-    let phase;
+    let phase: Option<String>;
     match &s.cfa {
         Some(cfa) => {
             // Normalized, balanced, clipped CFA plane.
@@ -199,7 +204,8 @@ pub fn develop_sensor(s: &Sensor, opts: &DevelopOptions) -> Result<Developed> {
             let stride = plane.stride;
             // Fast path: black varies at most per 2×2 position (the Bayer period).
             let bl = &s.black;
-            let periodic = bl.delta_h.is_empty() && bl.delta_v.is_empty() && matches!(bl.rows, 1 | 2) && matches!(bl.cols, 1 | 2);
+            let periodic = matches!(cfa.width, 1 | 2)
+                && bl.delta_h.is_empty() && bl.delta_v.is_empty() && matches!(bl.rows, 1 | 2) && matches!(bl.cols, 1 | 2);
             plane.fill_rows(band, |y0, chunk| {
                 for (r, prow) in chunk.chunks_exact_mut(stride).enumerate() {
                     let row = &mut prow[PAD..PAD + w];
@@ -246,9 +252,18 @@ pub fn develop_sensor(s: &Sensor, opts: &DevelopOptions) -> Result<Developed> {
                 }
             });
             plane.fill_borders();
-            let p = cfa.phase(c.x, c.y);
-            phase = Some(p);
-            rgb = demosaic(&plane, p, opts.demosaic, &to_xyz);
+            if cfa.is_bayer() {
+                let p = cfa.phase(c.x, c.y);
+                phase = Some(p.iter().map(|c| ['R', 'G', 'B'][usize::from(*c).min(2)]).collect());
+                rgb = demosaic(&plane, p, opts.demosaic, &to_xyz);
+            } else {
+                // X-Trans and other non-Bayer patterns, re-anchored at the crop origin.
+                let (pw, ph) = (cfa.width, cfa.height);
+                let colors = (0..ph).flat_map(|y| (0..pw).map(move |x| (x, y))).map(|(x, y)| cfa.color(c.x + x, c.y + y)).collect();
+                let pattern = Pattern { width: pw, height: ph, colors };
+                phase = Some(format!("{pw}x{ph} {}", if pw == 6 && ph == 6 { "X-Trans" } else { "CFA" }));
+                rgb = demosaic_any(&plane, &pattern);
+            }
             drop(plane);
         }
         None => {
@@ -301,7 +316,7 @@ pub fn develop_sensor(s: &Sensor, opts: &DevelopOptions) -> Result<Developed> {
             model: s.model.clone(),
             sensor_width: s.width,
             sensor_height: s.height,
-            cfa: phase.map(|p| p.iter().map(|c| ['R', 'G', 'B'][usize::from(*c).min(2)]).collect()),
+            cfa: phase,
             wb_multipliers: mult.map(|m| f64::from(m / nmax)),
             orientation: s.orientation,
             baseline_exposure: s.baseline_exposure,

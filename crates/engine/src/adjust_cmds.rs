@@ -69,9 +69,9 @@ pub fn selective_from_params(p: &Value, base: Option<&Adjustment>) -> Adjustment
 /// layer, as Photoshop does. Unspecified fields keep `base`'s values.
 pub fn lookup_from_params(p: &Value, base: Option<&Adjustment>) -> Result<Adjustment> {
     const CMD: &str = "colorLookup";
-    let (mut name, mut lut, mut size, mut tetrahedral, mut dither) = match base {
-        Some(Adjustment::ColorLookup { name, lut, size, tetrahedral, dither }) => (name.clone(), lut.clone(), *size, *tetrahedral, *dither),
-        _ => (String::new(), None, 0, false, false),
+    let (mut name, mut lut, mut size, mut tetrahedral, mut dither, mut domain) = match base {
+        Some(Adjustment::ColorLookup { name, lut, size, tetrahedral, dither, domain }) => (name.clone(), lut.clone(), *size, *tetrahedral, *dither, *domain),
+        _ => (String::new(), None, 0, false, false, None),
     };
     let mut loaded: Option<(photocraft_cms::lutfile::LutFile, String)> = None;
     if let Some(id) = p.get("lut").and_then(Value::as_str) {
@@ -79,6 +79,7 @@ pub fn lookup_from_params(p: &Value, base: Option<&Adjustment>) -> Result<Adjust
             name.clear();
             lut = None;
             size = 0;
+            domain = None;
         } else {
             let f = photocraft_cms::lutfile::builtin(id).ok_or_else(|| bad(CMD, format!("unknown look `{id}` (built-ins: {})", builtin_ids())))?;
             let label = f.title.clone();
@@ -98,6 +99,7 @@ pub fn lookup_from_params(p: &Value, base: Option<&Adjustment>) -> Result<Adjust
     if let Some((f, label)) = loaded {
         name = label;
         size = f.size as u32;
+        domain = (!f.has_unit_domain()).then_some(f.domain);
         lut = Some(std::sync::Arc::new(f.data));
     }
     if let Some(i) = p.get("interpolation").and_then(Value::as_str) {
@@ -109,7 +111,7 @@ pub fn lookup_from_params(p: &Value, base: Option<&Adjustment>) -> Result<Adjust
     if let Some(b) = p.get("dither").and_then(Value::as_bool) {
         dither = b;
     }
-    Ok(Adjustment::ColorLookup { name, lut, size, tetrahedral, dither })
+    Ok(Adjustment::ColorLookup { name, lut, size, tetrahedral, dither, domain })
 }
 
 fn builtin_ids() -> String {

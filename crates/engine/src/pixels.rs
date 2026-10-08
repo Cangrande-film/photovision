@@ -18,7 +18,9 @@ pub fn adjust_surface(s: &mut Surface, adj: &Adjustment, selection: Option<&Surf
     let raw = s.read_region(r);
     let mut buf = Buffer { rect: r, px: raw.chunks_exact(n).map(|p| to_rgba(&fmt, p)).collect() };
     let orig = buf.clone();
-    adjust::apply_with(adj, &mut buf, adjust::Transfer::for_document(mode, fmt.sample));
+    // 32-bit float surfaces keep values outside 0..1 (unclipped adjustments, like the layers).
+    let float = fmt.sample == photocraft_color::SampleType::F32;
+    adjust::apply_opts(adj, &mut buf, adjust::Transfer::for_document(mode, fmt.sample), None, float);
     let w = r.width() as usize;
     let mut out = Vec::with_capacity(raw.len());
     for (i, (a, o)) in buf.px.iter().zip(&orig.px).enumerate() {
@@ -115,4 +117,26 @@ pub fn merge_down(doc_bounds: Rect, lower: &Layer, upper: &Layer, format: photoc
     merged.blend = lower.blend;
     merged.opacity = 1.0;
     merged
+}
+
+#[cfg(test)]
+mod float_tests {
+    use super::*;
+    use photocraft_color::{ColorMode, PixelFormat};
+
+    /// Destructive adjustments keep 32-bit float values above 1, like adjustment layers; integer
+    /// surfaces clip.
+    #[test]
+    fn float_surfaces_keep_values_above_one() {
+        let plus_one = Adjustment::Exposure { exposure: 1.0, offset: 0.0, gamma: 1.0 };
+        let mut s = Surface::with_default(PixelFormat::RGBA32F, &[0.0; 4]);
+        s.fill_rect(Rect::new(0, 0, 2, 2), &[2.0, 0.5, 1.5, 1.0]);
+        adjust_surface(&mut s, &plus_one, None, ColorMode::Rgb);
+        let p = s.read_region(Rect::new(0, 0, 1, 1));
+        assert!((p[0] - 4.0).abs() < 1e-4 && (p[1] - 1.0).abs() < 1e-4 && (p[2] - 3.0).abs() < 1e-4, "{p:?}");
+        let mut s = Surface::with_default(PixelFormat::RGBA8, &[0.0; 4]);
+        s.fill_rect(Rect::new(0, 0, 2, 2), &[0.9, 0.5, 0.2, 1.0]);
+        adjust_surface(&mut s, &plus_one, None, ColorMode::Rgb);
+        assert!(s.read_region(Rect::new(0, 0, 1, 1)).iter().all(|v| *v <= 1.0));
+    }
 }

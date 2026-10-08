@@ -92,6 +92,23 @@ fn pcraft_documents_save_in_place_but_flat_files_ask() {
 }
 
 #[test]
+fn project_photos_save_to_their_sidecar() {
+    let (mut app, written) = app_with(None, None);
+    let ctx = egui::Context::default();
+    let mut project = photocraft_engine::project::Project::new("P");
+    let album = project.add_album("A").unwrap();
+    let added = project.add_photos(album, &["/pics/IMG_1.jpg".to_string()], false, None).unwrap();
+    let photocraft_engine::project::Added::New(id) = added[0] else { panic!("{added:?}") };
+    app.session.project = Some(photocraft_engine::project_cmds::ProjectState::new(project, "/work/P.pvproj".into()));
+    app.open_file("/pics/IMG_1.jpg", b"x").unwrap();
+    app.session.active_mut().unwrap().project_photo = Some(id);
+    // A flat original would go through Save As (cancelled here); a project photo writes its sidecar.
+    let r = menus::invoke(&mut app, &ctx, "file.save", json!({})).unwrap();
+    assert_eq!(r["path"], "/pics/IMG_1.jpg.pvision");
+    assert_eq!(written.borrow().last().map(|(p, _)| p.clone()).as_deref(), Some("/pics/IMG_1.jpg.pvision"));
+}
+
+#[test]
 fn import_warnings_reach_status_notice_and_control_response() {
     let dir = std::env::temp_dir().join(format!("photocraft-open-warn-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();

@@ -140,7 +140,7 @@ photocraft/
  L4  tools · viewport · io · ml · plugins
  L3  compose · gpu · format
  L2  ops · algo · paint · text · vector
- L1  doc
+ L1  doc · project
  L0  geom · cms · color · raster           psd, codecs, raw, adobe-assets (standalone, no workspace deps)
 ```
 
@@ -274,6 +274,17 @@ pub enum LayerContent {
 - **Big documents.** The tile store is behind a `TileStore` trait: in-memory now, disk-spilling ("scratch disk") later, with LRU eviction under a global memory budget.
 - **The first milestone supports RGB and Gray, at 8/16/32f.** CMYK and Lab are modelled in the types from day one (so PSD round-trips don't lose them) but are rendered by converting to RGB until later phases.
 
+### 5.1 PhotoVision projects and album looks
+
+A project (`photocraft-project`, `MyShoot.pvproj`, JSON) holds albums of photos; the engine's `project_cmds` opens a photo through its resolved colour pipeline and saves its edits to a sidecar (`<original>.pvision`, the native bundle). **Album looks** (`engine/src/album_look.rs`) are DaVinci Resolve's timeline grade without leaving the layer system:
+
+- **Model.** An album's look is a group of adjustment and fill layers (groups of them allowed; pixel masks are removed, since photos differ in size), held in `ProjectState::looks` and saved as `<Project> Looks/album-<id>.pvlook` (a one-group native bundle, so new adjustment fields round-trip) referenced by `Album::look`. `Album::look_enabled` switches it per album; `Photo::album_look` bypasses it per photo (both serde-default true).
+- **Documents.** `photo.open` puts the look on top of the photo's own layers as the group "Album Look — <album>" (clip grade, then timeline grade), visible iff the album's look is on and the photo doesn't bypass it. `DocState::album_look` links the document to it (no persistent layer field). It is an ordinary group: its layers are selected, edited in Properties, added, deleted and reordered with the usual commands; a new adjustment layer added while a look layer is targeted lands in the look.
+- **Sync.** `jobs::after_command` calls `album_look::sync`: a document whose group differs from its last-synced copy (cheap: only documents whose revision moved are compared) writes it into the album, marks the project dirty and refreshes the album's other open photos. Layers a look can't hold are moved out, just below the group, with a notice (`Session::notices`, shown by the shell). The group's eye is the per-photo bypass; deleting or merging the group bypasses the photo (with a notice) and never loses the look; `photo.setAlbumLook {enabled: true}` puts it back.
+- **Undo.** Undo in the document that edited the look syncs the older look to the album again. A document that *receives* the look gets it written into its current state and every undo/redo state (`History::rewrite_states`) without a history step, so an unrelated undo there never brings an old look back. Each state is rebuilt from its own group, keeping layer ids unique per state.
+- **Files.** Sidecars never hold the look (`photo.save` and the shell's File › Save write `Session::document_to_save`); `photo.save` writes the album's `.pvlook` when it changed, `project.save` writes every changed look (an emptied look deletes its file; an unreadable one is reported on open and left alone). `album.export`, Save a Copy and Export As include the look; Library thumbnails apply it in the photo's working space, and their cache key includes `album_look::group_hash`.
+- **Commands.** `album.look.info|setEnabled|clear`, `photo.setAlbumLook`, `layer.toAlbumLook` (move the selected adjustment layers into the look, one undo step), `layer.fromAlbumLook` (copy look layers into this photo only). UI: Project › Album Look, the Layers panel context menu, a "Look" badge on the group's row, and the Library inspector's Album Look section.
+
 ---
 
 ## 6. Operations and history (`photocraft-ops`)
@@ -318,7 +329,7 @@ Both backends consume the same plan. This is the only place that encodes Photosh
 
 - Blending happens in document space by default, which is Photoshop-compatible. A per-document "linear light blending" option is also available.
 - **Display transform** (`engine/src/display_color.rs`): the canvas is always colour-managed, document profile → monitor profile (relative colorimetric + BPC), cached per (document profile, mode, monitor). On the GPU canvas the transform, plus Proof Colors / Gamut Warning / 32-bit preview, is baked into a 33³ 3D LUT the canvas shader's final pass applies; the CPU canvas runs an 8-bit `photocraft-cms` transform on the composite. When the document profile matches the monitor (sRGB on sRGB) there is no LUT and no transform. Linear composites (EXR/HDR, tagged linear sRGB on import) are stored sRGB-encoded in the 8-bit canvas texture. CMYK documents are read through their embedded CMYK profile (`photocraft_color::convert::with_cmyk_space`, entered by the compositors and composite exports).
-- **Monitor profile:** Edit › Color Settings › Monitor Profile: `auto` (macOS: the main display's profile, read at launch through `osascript`/AppKit `NSScreen.colorSpace.ICCProfileData`, no FFI; elsewhere sRGB), a built-in RGB profile or an `.icc` path. The profile is not re-read when the window moves to another display.
+- **Monitor profile:** Edit › Color Settings › Monitor Profile: `auto` (the platform's profile for the display showing the window, else sRGB), a built-in RGB profile or an `.icc` path; a manual choice overrides the detected one. Detection lives in `apps/photocraft/src/monitor_profile.rs`, without FFI: macOS reads AppKit `NSScreen.mainScreen.colorSpace.ICCProfileData` through `osascript`; Windows runs a hidden `powershell` script (Add-Type P/Invoke: `MonitorFromPoint` → `EnumDisplayDevicesW` device interface name → `mscms` `WcsGetDefaultColorProfile`, falling back to `GetICMProfileW`) and reads the printed `.icc/.icm` path, with a 5 s timeout; Linux returns nothing. It runs off the UI thread at launch and, through `Services::detect_monitor_profile`, whenever the window settles (500 ms) at a new position (`ui-egui/src/monitor_follow.rs`). The session's profile bytes are replaced only when they change, which invalidates the canvas transforms.
 - **HDR/EDR output** (an `rgba16float` surface with an extended-range colorspace) is a later-phase feature. The interfaces already carry `f32` pixels.
 
 ### 7.4 Oracle

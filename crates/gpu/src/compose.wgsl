@@ -51,6 +51,7 @@ const F_LAB: u32 = 65536u;      // Lab document: Normal mixes in CIELAB
 const F_QUANT: u32 = 32768u;    // lerp: A rounded to p0.x steps (adjustment results, integer docs)
 const F_ADD_DIFF: u32 = 16384u;  // lerp: A + (B - C) premultiplied (clips on pass-through groups)
 const F_TEXT_GAMMA: u32 = 8192u; // blend / atop / fx merge: type layer, mix coverage at gamma p4.w
+const F_FLOAT: u32 = 262144u;    // 32-bit float document: adjustments unclipped, add-diff clips coverage only
 
 @group(0) @binding(0) var<uniform> chunk: Chunk;
 @group(0) @binding(1) var<uniform> op: Op;
@@ -103,6 +104,26 @@ fn lut(row: i32, v: f32) -> f32 {
     let f = x - f32(i);
     return textureLoad(lut_tex, vec2(i, row), 0).r * (1.0 - f) + textureLoad(lut_tex, vec2(j, row), 0).r * f;
 }
+
+// compose::adjust::lut_extend: outside 0..1 a tone row continues with its end slope (F_FLOAT).
+fn lut_ext(row: i32, v: f32) -> f32 {
+    if (v < 0.0) {
+        let t0 = textureLoad(lut_tex, vec2(0, row), 0).r;
+        let t1 = textureLoad(lut_tex, vec2(1, row), 0).r;
+        return t0 + v * (t1 - t0) * 4095.0;
+    }
+    if (v > 1.0) {
+        let tn = textureLoad(lut_tex, vec2(4095, row), 0).r;
+        let tm = textureLoad(lut_tex, vec2(4094, row), 0).r;
+        return tn + (v - 1.0) * (tn - tm) * 4095.0;
+    }
+    return lut(row, v);
+}
+
+fn unclipped() -> bool { return (op.flags & F_FLOAT) != 0u; }
+
+// compose::adjust::signed_pow: sign(x)·|x|^e.
+fn spow(x: f32, e: f32) -> f32 { return sign(x) * pow(abs(x), e); }
 
 fn gray(c: vec3<f32>) -> f32 { return 0.299 * c.r + 0.587 * c.g + 0.114 * c.b; }
 
@@ -443,6 +464,12 @@ fn selective_color(c: vec3<f32>, relative: bool) -> vec3<f32> {
 // Exposure on one channel (p = exposure scale, offset, gamma, transfer gamma). Per channel, not a
 // loop over `c[i]`: FXC aborts on that inside `adjust`'s switch.
 fn exposure(v: f32, p: vec4<f32>) -> f32 {
+    if (unclipped()) {
+        // Transfer::decode_signed / encode_signed: mirrored through zero, no clamp.
+        let l = sign(v) * t_decode(abs(v), p.w) * p.x + p.y;
+        let e = spow(l, 1.0 / p.z);
+        return sign(e) * t_encode(abs(e), p.w);
+    }
     let lin = pow(max(t_decode(v, p.w) * p.x + p.y, 0.0), 1.0 / p.z);
     return clamp(t_encode(lin, p.w), 0.0, 1.0);
 }
@@ -483,13 +510,26 @@ fn adjust(c: vec3<f32>) -> vec3<f32> {
             return vec3(select(0.0, 1.0, round_half_up(gray(c) * 255.0) >= p0.x));
         }
         case 3: { return vec3(posterize(c.r, p0.x), posterize(c.g, p0.x), posterize(c.b, p0.x)); }
-        case 4: { return clamp((c - 0.5) * p0.y + 0.5 + p0.x, vec3(0.0), vec3(1.0)); }   // B/C legacy
+        case 4: {                                                              // B/C legacy
+            let o = (c - 0.5) * p0.y + 0.5 + p0.x;
+            if (unclipped()) { return o; }
+            return clamp(o, vec3(0.0), vec3(1.0));
+        }
         case 5: {                                                              // B/C modern
             let b = p0.x; let ct = p0.y;
+            if (unclipped()) {
+                // compose::adjust::pass_excess: the curve on 0..1, the excess passed through.
+                let x = clamp(c, vec3(0.0), vec3(1.0));
+                let y = vec3(mcontrast(mbright(x.r, b), ct), mcontrast(mbright(x.g, b), ct), mcontrast(mbright(x.b, b), ct));
+                return clamp(y, vec3(0.0), vec3(1.0)) + (c - x);
+            }
             return vec3(mcontrast(mbright(c.r, b), ct), mcontrast(mbright(c.g, b), ct), mcontrast(mbright(c.b, b), ct));
         }
         case 6: { return vec3(exposure(c.r, p0), exposure(c.g, p0), exposure(c.b, p0)); }  // Exposure
-        case 7: { return vec3(lut(0, c.r), lut(1, c.g), lut(2, c.b)); }        // Levels / Curves
+        case 7: {                                                              // Levels / Curves
+            if (unclipped()) { return vec3(lut_ext(0, c.r), lut_ext(1, c.g), lut_ext(2, c.b)); }
+            return vec3(lut(0, c.r), lut(1, c.g), lut(2, c.b));
+        }
         case 8: {                                                              // Hue/Saturation
             let hsl = rgb_to_hsl(c);
             var hh: f32;
@@ -569,16 +609,26 @@ fn adjust(c: vec3<f32>) -> vec3<f32> {
             let ws = clamp(1.0 - l * 2.0, 0.0, 1.0);
             let wh = clamp(l * 2.0 - 1.0, 0.0, 1.0);
             let wm = 1.0 - ws - wh;
-            let o = clamp(c + (p0.rgb * ws + p1.rgb * wm + p2.rgb * wh) / 100.0 * 0.5, vec3(0.0), vec3(1.0));
+            var o = c + (p0.rgb * ws + p1.rgb * wm + p2.rgb * wh) / 100.0 * 0.5;
+            if (!unclipped()) { o = clamp(o, vec3(0.0), vec3(1.0)); }
             if (p3.x > 0.5) {
                 let l1 = max(gray(o), 1e-6);
+                if (unclipped()) { return o * l / l1; }
                 return clamp(o * l / l1, vec3(0.0), vec3(1.0));
             }
             return o;
         }
         case 15: { return selective_color(c, p0.x > 0.5); }                       // Selective color
         case 16: {                                                             // Color lookup (3D LUT)
-            var o = color_lookup(c, i32(p0.x), p0.y > 0.5);
+            // Input domain p1.rgb..p2.rgb (compose::adjust::lookup_coord).
+            let span = max(p2.rgb - p1.rgb, vec3(0.0));
+            let g = select(vec3(0.0), (c - p1.rgb) / select(vec3(1.0), span, span > vec3(0.0)), span > vec3(0.0));
+            var o = color_lookup(g, i32(p0.x), p0.y > 0.5);
+            if (unclipped()) {
+                o = o + (g - clamp(g, vec3(0.0), vec3(1.0))) * span;
+                if (p0.z > 0.5) { o = o + bayer4(adj_px) / 255.0; }
+                return o;
+            }
             if (p0.z > 0.5) { o = clamp(o + bayer4(adj_px) / 255.0, vec3(0.0), vec3(1.0)); }
             return o;
         }
@@ -733,6 +783,7 @@ fn fs_lerp(in: VOut) -> @location(0) vec4<f32> {
         var pm = vec4(a.rgb * a.a, a.a) + vec4(b.rgb * b.a, b.a) - vec4(c.rgb * c.a, c.a);
         let al = clamp(pm.a, 0.0, 1.0);
         if (al <= 0.0) { return vec4(0.0); }
+        if (unclipped()) { return vec4(pm.rgb / al, al); }
         return vec4(clamp(pm.rgb / al, vec3(0.0), vec3(1.0)), al);
     }
     let k = op.opacity * mask_value(doc_px(p));

@@ -10,9 +10,10 @@
 //!   and smart-object data) and re-export writes them back; text, shape and
 //!   smart-object layers also keep their pixels as the cached raster, and fill
 //!   layers keep Photoshop's rendering in `Layer::fill_cache`.
-//! * Camera raws (DNG, CR2, uncompressed / lossless TIFF-EP raws) via
-//!   `photocraft-raw`, developed into a 16-bit ProPhoto RGB "Background"
-//!   layer; unsupported raw variants fall back to the embedded JPEG preview.
+//! * Camera raws (DNG, CR2, uncompressed / lossless TIFF-EP raws, Sony cRAW,
+//!   RW2, ORF, uncompressed Fujifilm RAF incl. X-Trans) via `photocraft-raw`,
+//!   developed into a 16-bit ProPhoto RGB "Background" layer; unsupported raw
+//!   variants (CR3, compressed NEF / RAF…) fall back to the embedded JPEG preview.
 //! * Every other format goes through `photocraft-codecs` as a single
 //!   "Background" layer (depth and Gray/RGB/CMYK model preserved).
 //!
@@ -102,6 +103,27 @@ pub struct ExportOptions {
     pub encode: EncodeOptions,
     /// Write PSB even for `.psd` names when the document is small.
     pub force_psb: bool,
+    /// Output colour space for flat formats: RGB pixels are converted from the document's
+    /// profile to it and the file is tagged with it (when the format embeds ICC profiles).
+    /// `None` keeps the document's own profile. Layered saves (PSD/PSB, `.pcraft`) ignore it:
+    /// they are the edit master and stay in the document's (working) space.
+    pub target: Option<ExportTarget>,
+}
+
+/// Where an export's colours go (see [`ExportOptions::target`]).
+#[derive(Debug, Clone)]
+pub struct ExportTarget {
+    /// Destination profile (RGB; other colour spaces are ignored with a warning).
+    pub profile: std::sync::Arc<photocraft_cms::Profile>,
+    pub intent: photocraft_cms::Intent,
+    /// Black point compensation.
+    pub bpc: bool,
+}
+
+impl PartialEq for ExportTarget {
+    fn eq(&self, other: &Self) -> bool {
+        self.profile.content_hash() == other.profile.content_hash() && self.intent == other.intent && self.bpc == other.bpc
+    }
 }
 
 /// `true` if `bytes` start with the PSD/PSB signature.
@@ -127,7 +149,7 @@ pub fn import_with(name: &str, bytes: &[u8], ctl: &photocraft_raster::Interrupt)
 
 fn import_stages(name: &str, bytes: &[u8], ctl: &photocraft_raster::Interrupt) -> Result<ImportResult, IoError> {
     // A declared native extension must reach its loader so malformed bundles retain format errors.
-    if has_extension(name, photocraft_format::EXTENSION) || photocraft_format::is_pcraft(bytes) {
+    if has_extension(name, photocraft_format::EXTENSION) || has_extension(name, PHOTOVISION_EXTENSION) || photocraft_format::is_pcraft(bytes) {
         return Ok(ImportResult { document: photocraft_format::load_from_bytes(bytes)?, warnings: Vec::new() });
     }
     if is_psd(bytes) {
@@ -154,9 +176,18 @@ fn has_extension(name: &str, expected: &str) -> bool {
 
 /// Exports `doc` to the format named by `name_or_ext` (a file name, path or
 /// bare extension).
+/// PhotoVision's name for the native bundle (project photo sidecars, `IMG_0001.jpg.pvision`):
+/// the same format as `.pcraft`.
+pub const PHOTOVISION_EXTENSION: &str = "pvision";
+
+/// Is `ext` (lower case, no dot) the native bundle: `pcraft` or `pvision`?
+pub fn is_native_extension(ext: &str) -> bool {
+    ext.eq_ignore_ascii_case(photocraft_format::EXTENSION) || ext.eq_ignore_ascii_case(PHOTOVISION_EXTENSION)
+}
+
 pub fn export(doc: &Document, name_or_ext: &str, opts: &ExportOptions) -> Result<ExportResult, IoError> {
     let ext = extension(name_or_ext);
-    if ext == photocraft_format::EXTENSION {
+    if is_native_extension(&ext) {
         let previews = photocraft_format::SaveOptions {
             thumbnail: Some(photocraft_compose::thumbnail(doc, 256)),
             composite: Some(photocraft_compose::thumbnail(doc, 1024)),

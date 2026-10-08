@@ -83,3 +83,35 @@ fn cmyk_to_png_is_colour_managed_and_tagged_srgb() {
     let back = import("l.png", &r.bytes).unwrap().document;
     assert_eq!(Profile::parse(back.icc_profile.as_ref().unwrap()).unwrap().color_space, ColorSpace::Rgb);
 }
+
+/// `ExportOptions::target`: flat exports are converted to the output space and tagged with it;
+/// layered saves keep the document's (working) profile.
+#[test]
+fn export_target_converts_and_tags_flat_formats_only() {
+    use photocraft_cms::{Intent, Transform};
+    let target = ExportTarget { profile: Arc::new(Builtin::Rec709Bt1886.profile().clone()), intent: Intent::RelativeColorimetric, bpc: true };
+    let opts = ExportOptions { target: Some(target.clone()), ..Default::default() };
+    let mut d = single(ColorMode::Rgb, SampleType::U16, false);
+    d.icc_profile = Some(Builtin::DisplayP3.profile().to_bytes());
+    let src = document_to_image(&d, &mut Vec::new()).unwrap();
+    let r = export(&d, "x.png", &opts).unwrap();
+    let back = import("x.png", &r.bytes).unwrap().document;
+    assert_eq!(back.icc_profile.as_deref(), Some(&*Builtin::Rec709Bt1886.profile().to_bytes()), "tagged with the output space");
+    let got = document_to_image(&back, &mut Vec::new()).unwrap().to_normalized();
+    let mut want = src.to_normalized();
+    let t = Transform::new(Builtin::DisplayP3.profile(), Builtin::Rec709Bt1886.profile(), Intent::RelativeColorimetric, true).unwrap();
+    t.apply(&mut want, src.layout().channels());
+    assert_eq!(got.len(), want.len());
+    let worst = got.iter().zip(&want).map(|(a, b)| (a - b.clamp(0.0, 1.0)).abs()).fold(0.0f32, f32::max);
+    assert!(worst < 2.0 / 65535.0 * 4.0, "max diff {worst}");
+    // No target: unchanged behaviour (the document's profile is embedded).
+    let plain = import("x.png", &export(&d, "x.png", &ExportOptions::default()).unwrap().bytes).unwrap().document;
+    assert_eq!(plain.icc_profile.as_deref(), Some(&*Builtin::DisplayP3.profile().to_bytes()));
+    // PSD is the edit master: the working profile is kept.
+    let psd = import("x.psd", &export(&d, "x.psd", &opts).unwrap().bytes).unwrap().document;
+    assert_eq!(psd.icc_profile.as_deref(), Some(&*Builtin::DisplayP3.profile().to_bytes()));
+    // EXR stores linear sRGB: the target is reported as ignored.
+    let exr = export(&d, "x.exr", &opts).unwrap();
+    assert!(exr.warnings.iter().any(|w| w.contains("ignored")), "{:?}", exr.warnings);
+    assert_eq!(opts.target, Some(target));
+}

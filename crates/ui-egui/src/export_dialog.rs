@@ -96,7 +96,7 @@ fn s_fmt(f: &Map<String, Value>) -> String {
 }
 
 fn settings(f: &Map<String, Value>) -> ExportSettings {
-    ExportSettings { jpeg_quality: (s_fmt(f) == "jpg").then(|| n(f, "quality", 85.0).clamp(1.0, 100.0) as u8) }
+    ExportSettings { jpeg_quality: (s_fmt(f) == "jpg").then(|| n(f, "quality", 85.0).clamp(1.0, 100.0) as u8), color_target: None }
 }
 
 /// Estimated size (bytes) from a ≤512 px proxy encode, scaled by pixel count.
@@ -190,8 +190,10 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
     let suggested = format!("{stem}.{ext}");
     let path = app.services.pick_save.as_mut().and_then(|p| p(&suggested)).ok_or("cancelled")?;
     let out = export_document(&doc, f, None)?;
+    // Flat exports go to the document's colour pipeline output space.
+    let settings = ExportSettings { color_target: app.active_export_settings().color_target, ..settings(f) };
     let export = app.services.export.as_ref().ok_or("no exporter configured")?;
-    let (bytes, warnings) = export(&out, &path, &settings(f))?;
+    let (bytes, warnings) = export(&out, &path, &settings)?;
     let write = app.services.write.as_mut().ok_or("no writer configured")?;
     write(&path, &bytes)?;
     app.ui.status = format!("Exported {path} ({})", crate::sizing::human_bytes(bytes.len() as f64));

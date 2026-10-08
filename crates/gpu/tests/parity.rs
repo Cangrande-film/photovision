@@ -233,7 +233,84 @@ fn lookup(n: usize, tetrahedral: bool, dither: bool) -> Adjustment {
             }
         }
     }
-    Adjustment::ColorLookup { name: "test".into(), lut: Some(std::sync::Arc::new(t)), size: n as u32, tetrahedral, dither }
+    Adjustment::ColorLookup { name: "test".into(), lut: Some(std::sync::Arc::new(t)), size: n as u32, tetrahedral, dither, domain: None }
+}
+
+/// A 32-bit float layer with scene-linear values in -0.25..3 (multiples of 1/256, exact in the
+/// GPU's half-float layer textures), alpha 0.5..1.
+fn hdr_layer(rect: Rect, seed: u32) -> Layer {
+    let mut l = Layer::raster("hdr", PixelFormat::RGBA32F);
+    let n = rect.width() * rect.height();
+    let mut data = Vec::with_capacity(n as usize * 4);
+    for i in 0..n {
+        for c in 0..3 {
+            data.push(((rnd(seed + c * 7919, i) * 3.25 - 0.25) * 256.0).round() / 256.0);
+        }
+        data.push(((0.5 + 0.5 * rnd(seed + 31, i)) * 256.0).round() / 256.0);
+    }
+    l.surface_mut().unwrap().write_region(rect, &data);
+    l
+}
+
+/// Float documents keep values above 1 (and below 0) through the unclipped adjustments, the
+/// same on the GPU as on the CPU (`compose::adjust::apply_opts`, `F_FLOAT`).
+#[test]
+fn float_adjustments_above_one() {
+    let Some(mut g) = gpu() else { return };
+    let lc = |a: f32, b: f32, gm: f32| LevelsChannel { in_black: a, in_white: b, gamma: gm, out_black: 0.0, out_white: 1.0 };
+    let pts = |v: &[(f32, f32)]| v.iter().map(|&(input, output)| CurvePoint { input, output }).collect::<Vec<_>>();
+    let mut wide = lookup(9, false, false);
+    if let Adjustment::ColorLookup { domain, .. } = &mut wide {
+        *domain = Some([[-0.5, 0.0, 0.0], [1.5, 2.0, 1.0]]);
+    }
+    let adjs = vec![
+        Adjustment::Exposure { exposure: 0.5, offset: -0.05, gamma: 1.1 },
+        Adjustment::Levels {
+            master: lc(0.05, 0.6, 1.4),
+            per_channel: [lc(0.0, 1.0, 0.8), LevelsChannel::default(), lc(0.1, 0.9, 1.0)],
+            space: Default::default(),
+            black: LevelsChannel::default(),
+        },
+        Adjustment::Curves {
+            master: pts(&[(0.0, 0.05), (0.4, 0.6), (1.0, 0.9)]),
+            per_channel: [pts(&[(0.0, 0.0), (0.5, 0.3), (1.0, 1.0)]), pts(&[(0.0, 0.0), (1.0, 1.0)]), pts(&[(0.0, 0.2), (0.8, 1.0)])],
+            space: Default::default(),
+            black: Vec::new(),
+        },
+        Adjustment::BrightnessContrast { brightness: 30.0, contrast: 40.0, legacy: false },
+        Adjustment::BrightnessContrast { brightness: -20.0, contrast: 30.0, legacy: true },
+        Adjustment::ColorBalance { shadows: [20.0, -10.0, 5.0], midtones: [-15.0, 10.0, 30.0], highlights: [0.0, 5.0, -20.0], preserve_luminosity: true },
+        lookup(17, false, false),
+        lookup(5, true, true),
+        wide,
+    ];
+    let (w, h) = (40, 30);
+    for adj in adjs {
+        for masked in [false, true] {
+            let mut d = Document::new("f", Size::new(w, h), ColorMode::Rgb, SampleType::F32);
+            d.layers.push(hdr_layer(Rect::from_xywh(0, 0, w, h), 91));
+            let mut a = Layer::new("adj", LayerContent::Adjustment(adj.clone()));
+            if masked {
+                a.mask = Some(mask(Rect::new(0, 0, w as i32, 15), 9, 0.3));
+                a.opacity = 0.8;
+            }
+            d.layers.push(a);
+            let cpu = photocraft_compose::render(&d, d.bounds());
+            assert!(cpu.px.iter().any(|p| p[0] > 1.0 || p[1] > 1.0 || p[2] > 1.0), "{}: no value above 1 survives", adj.label());
+            check(&mut g, &d, &format!("{} float masked={masked}", adj.label()));
+        }
+    }
+    // A layer clipped to a pass-through group: only coverage is clipped (F_ADD_DIFF).
+    let mut d = Document::new("f", Size::new(w, h), ColorMode::Rgb, SampleType::F32);
+    d.layers.push(hdr_layer(Rect::from_xywh(0, 0, w, h), 5));
+    let mut grp = Layer::group("g", vec![hdr_layer(Rect::new(4, 4, 36, 26), 6)]);
+    grp.blend = BlendMode::PassThrough;
+    let mut clip = hdr_layer(Rect::new(0, 0, 30, 30), 7);
+    clip.clipped = true;
+    clip.opacity = 0.6;
+    d.layers.push(grp);
+    d.layers.push(clip);
+    check(&mut g, &d, "float clip on pass-through group");
 }
 
 #[test]

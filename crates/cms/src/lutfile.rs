@@ -1,8 +1,9 @@
 //! Creative 3D LUT files for Image › Adjustments › Color Lookup: `.cube` (Adobe/Resolve), `.3dl`
 //! (Autodesk Lustre / Flame) and `.look` (SpeedGrade XML), plus a few generated (CC0) looks.
 //!
-//! Every table is normalised to [`LutFile`]: `size`³ RGB triplets in 0..=1, **red varying
-//! fastest** (`((b·size + g)·size + r)·3`). Formats follow their public descriptions: the Adobe
+//! Every table is normalised to [`LutFile`]: `size`³ RGB triplets, **red varying fastest**
+//! (`((b·size + g)·size + r)·3`), sampled on a grid spanning the input [`LutFile::domain`]
+//! (`.cube` `DOMAIN_MIN` / `DOMAIN_MAX`, 0..1 by default). Formats follow their public descriptions: the Adobe
 //! "Cube LUT Specification 1.0", the Lustre 3DL layout as documented by OpenColorIO, and the
 //! SpeedGrade `.look` XML (hex-encoded little-endian float32 RGB triplets).
 
@@ -13,6 +14,22 @@ pub struct LutFile {
     pub size: usize,
     /// `size`³ × 3 values, red fastest.
     pub data: Vec<f32>,
+    /// Input range the grid spans, per channel: `[min, max]` (`.cube` `DOMAIN_MIN` /
+    /// `DOMAIN_MAX` or `LUT_3D_INPUT_RANGE`). An input `x` is looked up at grid coordinate
+    /// `(x − min) / (max − min)` (see [`LutFile::grid_coord`]); [`UNIT_DOMAIN`] for most files.
+    pub domain: [[f32; 3]; 2],
+}
+
+/// The default `.cube` domain, 0..1 on every channel.
+pub const UNIT_DOMAIN: [[f32; 3]; 2] = [[0.0; 3], [1.0; 3]];
+
+/// Normalised grid coordinate of input `c` in `domain` (`(c − min) / (max − min)` per channel;
+/// not clamped). A degenerate channel (max ≤ min) maps to 0.
+pub fn domain_coord(domain: &[[f32; 3]; 2], c: [f32; 3]) -> [f32; 3] {
+    std::array::from_fn(|k| {
+        let span = domain[1][k] - domain[0][k];
+        if span > 0.0 { (c[k] - domain[0][k]) / span } else { 0.0 }
+    })
 }
 
 /// Largest edge length accepted (64³ is Photoshop's practical maximum; 129 leaves headroom while
@@ -52,7 +69,17 @@ impl LutFile {
                 }
             }
         }
-        LutFile { title: title.to_string(), size, data }
+        LutFile { title: title.to_string(), size, data, domain: UNIT_DOMAIN }
+    }
+
+    /// Whether the table spans the default 0..1 input domain.
+    pub fn has_unit_domain(&self) -> bool {
+        self.domain == UNIT_DOMAIN
+    }
+
+    /// Normalised grid coordinate of input `c` (see [`domain_coord`]).
+    pub fn grid_coord(&self, c: [f32; 3]) -> [f32; 3] {
+        domain_coord(&self.domain, c)
     }
 
     fn check(self) -> Result<Self, LutError> {
@@ -64,6 +91,10 @@ impl LutFile {
         }
         if self.data.iter().any(|v| !v.is_finite()) {
             return err("non-finite LUT value");
+        }
+        let [lo, hi] = self.domain;
+        if (0..3).any(|k| !lo[k].is_finite() || !hi[k].is_finite() || hi[k] <= lo[k]) {
+            return err(format!("bad LUT domain {lo:?}..{hi:?} (DOMAIN_MAX must exceed DOMAIN_MIN)"));
         }
         Ok(self)
     }
@@ -124,9 +155,10 @@ pub fn parse_cube(text: &str) -> Result<LutFile, LutError> {
             _ => {}
         }
     }
-    let _ = (dmin, dmax); // Domain other than 0..1 only shifts input sampling; we assume 0..1 inputs.
+    // The grid spans DOMAIN_MIN..DOMAIN_MAX: lookups remap their input into it (`grid_coord`).
+    let domain = [dmin, dmax];
     if size3 > 0 {
-        return LutFile { title, size: size3, data: rows }.check();
+        return LutFile { title, size: size3, data: rows, domain }.check();
     }
     if size1 >= 2 && rows.len() == size1 * 3 {
         let curve = |ch: usize, v: f32| {
@@ -135,8 +167,10 @@ pub fn parse_cube(text: &str) -> Result<LutFile, LutError> {
             let f = x - i as f32;
             rows[i * 3 + ch] * (1.0 - f) + rows[(i + 1) * 3 + ch] * f
         };
+        // The 33³ expansion shares the 1D table's normalised grid, so it keeps its domain.
         let mut l = LutFile::from_fn(&title, 33, |c| [curve(0, c[0]), curve(1, c[1]), curve(2, c[2])]);
         l.title = title;
+        l.domain = domain;
         return l.check();
     }
     err("no LUT_3D_SIZE in .cube file")
@@ -171,7 +205,7 @@ pub fn parse_3dl(text: &str) -> Result<LutFile, LutError> {
             data[at + k] = (row[k] / scale) as f32;
         }
     }
-    LutFile { title: String::new(), size: n, data }.check()
+    LutFile { title: String::new(), size: n, data, domain: UNIT_DOMAIN }.check()
 }
 
 /// SpeedGrade `.look`: `<size>` and a hex `<data>` string of little-endian float32 RGB triplets
@@ -190,7 +224,7 @@ pub fn parse_look(text: &str) -> Result<LutFile, LutError> {
     let floats: Vec<f32> = bytes.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect();
     let n3 = size.pow(3);
     let data = if floats.len() == n3 * 4 { floats.as_chunks::<4>().0.iter().flat_map(|c| [c[0], c[1], c[2]]).collect() } else { floats };
-    LutFile { title: tag("title").unwrap_or_default(), size, data }.check()
+    LutFile { title: tag("title").unwrap_or_default(), size, data, domain: UNIT_DOMAIN }.check()
 }
 
 /// Writes a `.cube` file (what Photoshop embeds in a Color Lookup layer).
@@ -200,6 +234,11 @@ pub fn write_cube(l: &LutFile) -> String {
         s.push_str(&format!("TITLE \"{}\"\n", l.title.replace('"', "'")));
     }
     s.push_str(&format!("LUT_3D_SIZE {}\n", l.size));
+    if !l.has_unit_domain() {
+        let [lo, hi] = l.domain;
+        s.push_str(&format!("DOMAIN_MIN {:.6} {:.6} {:.6}\n", lo[0], lo[1], lo[2]));
+        s.push_str(&format!("DOMAIN_MAX {:.6} {:.6} {:.6}\n", hi[0], hi[1], hi[2]));
+    }
     for c in l.data.as_chunks::<3>().0 {
         s.push_str(&format!("{:.6} {:.6} {:.6}\n", c[0], c[1], c[2]));
     }
@@ -292,6 +331,37 @@ mod tests {
         assert_eq!(l.size, 33);
         let last = &l.data[l.data.len() - 3..];
         assert!((last[0] - 0.5).abs() < 1e-6 && (last[1] - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn cube_domain_is_kept_and_round_trips() {
+        let text = "LUT_3D_SIZE 2\nDOMAIN_MIN 0 0 0\nDOMAIN_MAX 2 2 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n";
+        let l = parse_cube(text).unwrap();
+        assert_eq!(l.domain, [[0.0; 3], [2.0; 3]]);
+        assert!(!l.has_unit_domain());
+        assert_eq!(l.grid_coord([1.0, 2.0, 0.5]), [0.5, 1.0, 0.25]);
+        let back = parse_cube(&write_cube(&l)).unwrap();
+        assert_eq!(back.domain, l.domain);
+        // Files without a domain keep writing none.
+        assert!(!write_cube(&LutFile::identity(2)).contains("DOMAIN"));
+        assert_eq!(parse_cube(&write_cube(&LutFile::identity(2))).unwrap().domain, UNIT_DOMAIN);
+    }
+
+    #[test]
+    fn cube_negative_domain_and_input_range() {
+        let text = "DOMAIN_MIN -0.5 -0.5 -0.5\nDOMAIN_MAX 1.5 1.5 1.5\nLUT_1D_SIZE 2\n0 0 0\n1 1 1\n";
+        let l = parse_cube(text).unwrap();
+        assert_eq!(l.size, 33);
+        assert_eq!(l.domain, [[-0.5; 3], [1.5; 3]]);
+        assert_eq!(l.grid_coord([-0.5, 0.5, 1.5]), [0.0, 0.5, 1.0]);
+        let mut text = String::from("LUT_3D_INPUT_RANGE 0 4\nLUT_3D_SIZE 2\n");
+        text.push_str(&"0 0 0\n".repeat(8));
+        assert_eq!(parse_cube(&text).unwrap().domain, [[0.0; 3], [4.0; 3]]);
+        // An empty or inverted domain is an error, not a division by zero.
+        let mut bad = String::from("LUT_3D_SIZE 2\nDOMAIN_MIN 1 1 1\nDOMAIN_MAX 1 1 1\n");
+        bad.push_str(&"0 0 0\n".repeat(8));
+        assert!(parse_cube(&bad).is_err());
+        assert_eq!(domain_coord(&[[0.0; 3], [0.0; 3]], [0.3; 3]), [0.0; 3]);
     }
 
     #[test]

@@ -8,6 +8,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod adjust_cmds;
+pub mod album_look;
 pub mod adjust_params;
 pub mod align_cmds;
 pub mod analysis_cmds;
@@ -19,6 +20,7 @@ pub mod build_info;
 mod canvas_geom;
 pub mod channel_cmds;
 pub mod color_cmds;
+pub mod color_pipeline;
 pub mod commands;
 pub mod comps_cmds;
 pub mod display_color;
@@ -61,6 +63,7 @@ pub mod preset_import_cmds;
 pub mod preset_store;
 pub mod presets;
 pub mod print_cmds;
+pub mod project_cmds;
 pub mod proof_sim;
 pub mod render_cmds;
 pub mod retouch_cmds;
@@ -95,6 +98,7 @@ use serde_json::Value;
 pub use commands::{CommandSpec, command_specs};
 pub use photocraft_doc as doc;
 pub use photocraft_paint as paint;
+pub use photocraft_project as project;
 pub use photocraft_paint::BrushSettings;
 
 #[derive(Debug, thiserror::Error)]
@@ -160,6 +164,11 @@ pub struct DocState {
     /// Layers panel: layers whose effects list is collapsed under their row (the fx triangle;
     /// view state, not history). Effects lists start open.
     pub fx_collapsed: Vec<LayerId>,
+    /// The project photo this document shows (see `project_cmds`): File › Save writes its sidecar.
+    pub project_photo: Option<u64>,
+    /// The project photo's album look group (see [`album_look`]): not saved in its sidecar,
+    /// shared with the album's other photos.
+    pub album_look: Option<album_look::AlbumLookLink>,
 }
 
 impl DocState {
@@ -181,6 +190,8 @@ impl DocState {
             channel_view: Default::default(),
             isolated_layers: Vec::new(),
             fx_collapsed: Vec::new(),
+            project_photo: None,
+            album_look: None,
         }
     }
     /// The selected layers in bottom-to-top document order, always including the active layer.
@@ -280,6 +291,11 @@ pub struct Session {
     pub preset_store: Option<preset_store::PresetStore>,
     /// Background jobs (see [`jobs`]).
     jobs: jobs::Jobs,
+    /// The open PhotoVision project (albums, photos, colour settings; see `project_cmds`).
+    pub project: Option<project_cmds::ProjectState>,
+    /// Messages for the user that commands leave behind (album look changes they should know
+    /// about); the shell shows and clears them ([`Session::take_notices`]).
+    pub notices: Vec<String>,
 }
 
 impl Session {
@@ -332,6 +348,7 @@ impl Session {
         smart_cmds::on_close(self, index);
         if let Some(id) = self.docs.get(index).map(|d| d.doc.id) {
             self.cancel_jobs_on(id);
+            self.color.set_pipeline(id, None);
         }
         let d = self.docs.remove(index);
         self.active = if self.docs.is_empty() { None } else { Some(index.min(self.docs.len() - 1)) };

@@ -3,10 +3,11 @@
 //! Implemented only from public specifications and papers: TIFF 6.0,
 //! TIFF/EP (ISO 12234-2), the Adobe DNG Specification 1.7, ITU-T T.81
 //! (lossless JPEG, process 14), the published structure of Canon's CR2
-//! container, published descriptions of Sony's cRAW code, public maker-note
+//! container, ISO/IEC 14496-12 and the published description of Canon's
+//! CR3 container, published descriptions of Sony's cRAW code, public maker-note
 //! tag tables, observation of sample files, and the demosaicing papers cited
 //! in [`Demosaic`]. No code from
-//! dcraw, LibRaw, rawspeed, rawler, rawloader or darktable was used.
+//! dcraw, LibRaw, rawspeed, rawler, rawloader, darktable or RawTherapee was used.
 //!
 //! * [`identify`] / [`is_raw`] recognise raw files from their bytes.
 //! * [`decode`] reads the undeveloped [`Sensor`] data and metadata.
@@ -20,8 +21,10 @@
 //! Decoded today: DNG (uncompressed and lossless-JPEG, strips and tiles, CFA
 //! and LinearRaw), CR2 (lossless JPEG with Canon slices), uncompressed or
 //! lossless-JPEG TIFF/EP raws (NEF, ARW, PEF… when not vendor-compressed),
-//! Sony compressed ARW (cRAW), Panasonic RW2 (RawFormat 5) and uncompressed
-//! Olympus ORF. Everything else reports [`RawError::Unsupported`].
+//! Sony compressed ARW (cRAW), Panasonic RW2 (RawFormat 5), uncompressed
+//! Olympus ORF and uncompressed Fujifilm RAF (Bayer and X-Trans). Canon CR3
+//! is parsed (container, metadata, embedded JPEGs) but its CRX-coded sensor
+//! data is not decoded. Everything else reports [`RawError::Unsupported`].
 //!
 //! The crate is standalone (no workspace dependencies), does no I/O, builds for
 //! `wasm32-unknown-unknown` and never panics on hostile input: sizes are
@@ -32,6 +35,7 @@
 
 mod color;
 mod cr2;
+mod cr3;
 mod demosaic;
 mod develop;
 mod dng;
@@ -41,6 +45,7 @@ mod opcodes;
 mod orf;
 mod par;
 mod preview;
+mod raf;
 mod rw2;
 mod sensor;
 mod sony;
@@ -204,8 +209,8 @@ pub fn is_raw(bytes: &[u8]) -> bool {
 pub fn decode(bytes: &[u8], limits: &Limits) -> Result<Sensor, RawError> {
     let format = identify(bytes).ok_or(RawError::NotRaw)?;
     match format {
-        RawFormat::Cr3 => Err(RawError::unsupported("Canon CR3 (ISO BMFF / CRX) is not decoded yet")),
-        RawFormat::Raf => Err(RawError::unsupported("Fujifilm RAF is not decoded yet")),
+        RawFormat::Cr3 => cr3::decode(bytes),
+        RawFormat::Raf => raf::decode(bytes, limits),
         _ => {
             let t = Tiff::new(bytes).ok_or(RawError::NotRaw)?;
             match format {
@@ -230,6 +235,9 @@ pub fn decode_lossless_jpeg(bytes: &[u8], max_samples: usize) -> Result<(usize, 
 /// Lists the TIFF structure of a raw file (debugging aid).
 #[doc(hidden)]
 pub fn dump_structure(bytes: &[u8]) -> String {
+    if identify(bytes) == Some(RawFormat::Cr3) {
+        return cr3::dump(bytes);
+    }
     tiff::dump(bytes)
 }
 

@@ -5,8 +5,9 @@ use serde_json::{Value, json};
 use crate::PhotocraftApp;
 use crate::state::{DialogKind, UiState};
 
-/// Top-level menus in Photoshop order.
-pub const TOP_MENUS: [&str; 10] = ["File", "Edit", "Image", "Layer", "Type", "Select", "Filter", "View", "Window", "Help"];
+/// Top-level menus in Photoshop order, plus PhotoVision's Project menu (projects, albums; the
+/// Library) before Help. (As a File submenu it made the File menu too tall for a 900 px window.)
+pub const TOP_MENUS: [&str; 11] = ["File", "Edit", "Image", "Layer", "Type", "Select", "Filter", "View", "Window", "Project", "Help"];
 
 /// UI-level commands (handled by the shell rather than the engine): id, label, menu, shortcut.
 pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
@@ -45,6 +46,10 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("window.toggle.navigator", "Navigator", &["Window"], None),
     ("window.toggle.toolbar", "Tools", &["Window"], None),
     ("window.toggle.options", "Options", &["Window"], None),
+    // PhotoVision's Clips bar (`clips_ui`): the current album's filmstrip in the Edit module.
+    ("window.toggle.clips", "Clips", &["Window"], None),
+    ("view.clips.prev", "Previous Photo", &["View"], Some("Cmd+Left")),
+    ("view.clips.next", "Next Photo", &["View"], Some("Cmd+Right")),
     ("window.theme.toggle", "Next Theme", &["Window"], None),
     ("window.theme.pro", "Pro Theme", &["Window", "Theme"], None),
     ("window.theme.proMedium", "Pro Medium Gray Theme", &["Window", "Theme"], None),
@@ -59,6 +64,23 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("help.reportIssue", "Report an Issue…", &["Help"], None),
     ("help.systemInfo", "System Info…", &["Help"], None),
     ("help.about", "About PhotoVision", &["Help"], None),
+    // PhotoVision projects (the Library module; `library_ui` fronts them with pickers and dialogs).
+    ("project.new", "New Project…", &["Project"], None),
+    ("project.open", "Open Project…", &["Project"], None),
+    ("project.save", "Save Project", &["Project"], None),
+    ("project.close", "Close Project", &["Project"], None),
+    ("project.settings", "Project Settings…", &["Project"], None),
+    ("album.new", "New Album…", &["Project"], None),
+    ("album.import", "Import Photos…", &["Project"], None),
+    ("album.export", "Export Album…", &["Project"], None),
+    ("album.rename", "Rename Album…", &["Project"], None),
+    ("album.delete", "Delete Album…", &["Project"], None),
+    // Album looks (`album_look_ui` fills in the album or photo and toggles).
+    ("album.look.setEnabled", "Enable Album Look", &["Project", "Album Look"], None),
+    ("photo.setAlbumLook", "Use Album Look for This Photo", &["Project", "Album Look"], None),
+    ("layer.toAlbumLook", "Move Layers to Album Look", &["Project", "Album Look"], None),
+    ("layer.fromAlbumLook", "Copy Layers from Album Look", &["Project", "Album Look"], None),
+    ("album.look.clear", "Clear Album Look…", &["Project", "Album Look"], None),
 ];
 
 /// Photoshop's Window › <panel> ids for the panels the shell already has, as `window.toggle.*`.
@@ -162,6 +184,17 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
     if let Some(r) = crate::prefs_ui::invoke(app, ctx, id, &params) {
         return r;
     }
+    // Project menu: pickers and dialogs in front of the project/album commands.
+    if let Some(r) = crate::album_look_ui::menu(app, id, &params) {
+        return r;
+    }
+    if let Some(r) = crate::library_ui::menu(app, id, &params) {
+        return r;
+    }
+    // Clips bar: next/previous photo of the album, Window › Clips.
+    if let Some(r) = crate::clips_ui::menu(app, id) {
+        return r;
+    }
     // Save for Web, Print and the other File-menu dialogs added with slices.
     if let Some(r) = crate::file_ui::invoke(app, ctx, id, &params) {
         return r;
@@ -226,11 +259,13 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
             }
         }
         "file.save" => {
-            // Writes back only to a layered file; a flat one goes through Save As.
+            // Writes back only to a layered file; a flat one goes through Save As. A project
+            // photo saves to its sidecar (`<original>.pcraft`; the original is never written).
             let path = params
                 .get("path")
                 .and_then(Value::as_str)
                 .map(str::to_string)
+                .or_else(|| app.session.active_photo_sidecar())
                 .or_else(|| app.session.active().and_then(|d| d.path.clone()).filter(|p| photocraft_engine::file_cmds::saves_in_place(p)));
             app.save_as(path).map(|(p, w)| json!({"path": p, "warnings": w}))
         }
@@ -453,6 +488,15 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
     if let Some(e) = crate::plugin_ui::is_enabled(app, id) {
         return e;
     }
+    if let Some(e) = crate::album_look_ui::is_enabled(app, id) {
+        return e;
+    }
+    if let Some(e) = crate::library_ui::is_enabled(app, id) {
+        return e;
+    }
+    if let Some(e) = crate::clips_ui::is_enabled(app, id) {
+        return e;
+    }
     match id {
         "file.open" | "file.exit" | "file.clearRecent" | "help.about" | "help.systemInfo" | "edit.search" => true,
         i if i.starts_with("file.openRecent.") => true,
@@ -501,6 +545,12 @@ fn checked(app: &PhotocraftApp, id: &str) -> Option<bool> {
         return Some(c);
     }
     if let Some(c) = crate::timeline_ui::checked(app, id) {
+        return Some(c);
+    }
+    if let Some(c) = crate::album_look_ui::checked(app, id) {
+        return Some(c);
+    }
+    if let Some(c) = crate::clips_ui::checked(app, id) {
         return Some(c);
     }
     if let Some(c) = crate::type_panels_ui::checked(app, id) {

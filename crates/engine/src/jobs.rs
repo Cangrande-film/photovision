@@ -636,6 +636,8 @@ impl Session {
 
     /// Bookkeeping after a command (or a job's apply) succeeded.
     fn after_command(&mut self, id: &str, params: Value, journal: bool) {
+        // A changed album look group updates its album and the album's other open photos.
+        crate::album_look::sync(self);
         // A layer-mask view ends when another layer becomes active (#196).
         if let Some(st) = self.active_mut() {
             crate::mask_view_cmds::fix(st);

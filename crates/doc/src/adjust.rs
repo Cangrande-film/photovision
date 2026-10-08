@@ -184,8 +184,9 @@ pub enum Adjustment {
         matrix: [[f32; 4]; 3],
         monochrome: bool,
     },
-    /// A 3D LUT: `size`³ RGB triplets, red varying fastest (`((b·size + g)·size + r)·3`), in 0..=1.
-    /// `lut` is None for a lookup Photoshop stores as an ICC profile (identity here).
+    /// A 3D LUT: `size`³ RGB triplets, red varying fastest (`((b·size + g)·size + r)·3`), sampled
+    /// on a grid spanning `domain`. `lut` is None for a lookup Photoshop stores as an ICC profile
+    /// (identity here).
     ColorLookup {
         name: String,
         lut: Option<Arc<Vec<f32>>>,
@@ -196,6 +197,11 @@ pub enum Adjustment {
         /// Ordered dither of ±½ an 8-bit step to hide banding (Photoshop's "Dither").
         #[serde(default)]
         dither: bool,
+        /// Input range the table's grid spans per channel, `[min, max]` (a `.cube` file's
+        /// `DOMAIN_MIN` / `DOMAIN_MAX`): an input `x` is looked up at `(x − min) / (max − min)`.
+        /// `None` is the usual 0..1.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        domain: Option<[[f32; 3]; 2]>,
     },
     Invert,
     Posterize {

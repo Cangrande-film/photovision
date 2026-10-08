@@ -19,6 +19,7 @@ pub mod adjust_dialog;
 pub mod adjust_editors;
 pub mod adjust_preview;
 pub mod adjust_ui;
+pub mod album_look_ui;
 pub mod analysis_ui;
 pub mod artboard_ui;
 pub mod brush_panel;
@@ -33,6 +34,7 @@ pub mod channel_view;
 pub mod channels_panel;
 pub mod chrome_ui;
 pub mod cjk_fonts;
+pub mod clips_ui;
 pub mod color_picker_ui;
 pub mod color_range_ui;
 pub mod comps_ui;
@@ -66,12 +68,14 @@ mod layer_reveal;
 pub mod layer_row_ui;
 pub mod layer_style;
 pub mod layer_tree_ui;
+pub mod library_ui;
 pub mod links;
 pub mod liquify_ui;
 pub mod mask_thumbs_ui;
 pub mod menu_catalog;
 pub mod menu_nav;
 pub mod menus;
+pub mod monitor_follow;
 pub mod move_mods;
 pub mod move_ui;
 pub mod new_doc_ui;
@@ -141,12 +145,17 @@ pub type ImportFn = Box<dyn Fn(&str, &[u8]) -> Result<(Document, Vec<String>), S
 pub struct ExportSettings {
     /// JPEG quality 1–100 (None = codec default).
     pub jpeg_quality: Option<u8>,
+    /// The document's colour pipeline output space (flat formats are converted to it and tagged;
+    /// layered formats ignore it). See `photocraft_io::ExportOptions::target`.
+    pub color_target: Option<photocraft_engine::color_pipeline::ExportTarget>,
 }
 
 /// Encode a document: (file bytes, warnings about anything approximated or dropped).
 pub type ExportFn = Box<dyn Fn(&Document, &str, &ExportSettings) -> Result<(Vec<u8>, Vec<String>), String>>;
 pub type PickOpenFn = Box<dyn FnMut() -> Option<(String, Vec<u8>)>>;
 pub type PickSaveFn = Box<dyn FnMut(&str) -> Option<String>>;
+/// Show a file dialog for the Library and return the chosen paths (empty when cancelled).
+pub type PickPathsFn = Box<dyn FnMut(library_ui::PathPick) -> Vec<String>>;
 pub type WriteFn = Box<dyn FnMut(&str, &[u8]) -> Result<(), String>>;
 /// Read bytes through the desktop control session's authorized read root.
 pub type AutomationReadFn = Box<dyn FnMut(&str) -> Result<(String, Vec<u8>), String>>;
@@ -236,6 +245,12 @@ pub struct Services {
     /// `photocraft_engine::preset_store`). Attached to the session once it arrives; without
     /// one, brush presets are session-only (web, tests).
     pub preset_store: Option<std::sync::mpsc::Receiver<photocraft_engine::preset_store::Opened>>,
+    /// The ICC profile of the display under a screen point, queried in the background when the
+    /// window settles after a move (see `monitor_follow`). `None` on the web.
+    pub detect_monitor_profile: Option<monitor_follow::DetectMonitorFn>,
+    /// File dialogs that return paths (project files, photos to import, folders) for the
+    /// Library (see `library_ui`). `None` on the web, where projects are unavailable.
+    pub pick_paths: Option<PickPathsFn>,
 }
 
 pub struct PhotocraftApp {
@@ -317,6 +332,8 @@ pub struct PhotocraftApp {
     pub(crate) transform_preview: Option<transform_tool::TransformPreview>,
     /// Move-tool ⇧/⌥ drag state (move_mods).
     pub(crate) move_mods: move_mods::MoveDrag,
+    /// The monitor profile following the window between displays (monitor_follow).
+    pub(crate) monitor_follow: monitor_follow::MonitorFollow,
     /// Live Layer Style dialog preview: (key over revision + style fields, document with the style applied).
     pub(crate) style_preview: Option<(u64, Option<std::sync::Arc<Document>>)>,
     /// Liquify dialog, Puppet Warp and Perspective Warp sessions (distort_ui).
@@ -372,6 +389,8 @@ pub struct PhotocraftApp {
     pub background_jobs: bool,
     /// Background job bookkeeping: opening tabs, control replies waiting on a job.
     pub jobs: jobs_ui::JobsUi,
+    /// Library module caches: project info, thumbnail textures, background export (`library_ui`).
+    pub(crate) library: library_ui::Runtime,
     #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
     live_tokens: theme::live::LiveTokens,
 }
@@ -430,6 +449,7 @@ impl PhotocraftApp {
             clip_read_for_paste: false,
             transform_preview: None,
             move_mods: Default::default(),
+            monitor_follow: Default::default(),
             style_preview: None,
             distort: Default::default(),
             gradient: Default::default(),
@@ -446,6 +466,7 @@ impl PhotocraftApp {
             stylus: Default::default(),
             background_jobs: false,
             jobs: Default::default(),
+            library: Default::default(),
             #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
             live_tokens: theme::live::LiveTokens::from_env(),
         };
@@ -546,6 +567,9 @@ impl PhotocraftApp {
         self.perf.command_ms = gpu_canvas::now_ms() - t0;
         match &r {
             Ok(_) => {
+                if !matches!(id, "project.info" | "photo.thumbnail") {
+                    self.library.stale = true;
+                }
                 self.sync_views();
                 if self.ui.status_error {
                     self.ui.status.clear();
@@ -691,6 +715,11 @@ impl PhotocraftApp {
         }
     }
 
+    /// Export settings for the active document: its colour pipeline's output space, if any.
+    pub(crate) fn active_export_settings(&self) -> ExportSettings {
+        ExportSettings { color_target: self.session.active_index().and_then(|i| self.session.export_target(i)), ..Default::default() }
+    }
+
     /// Save the active document to `path` (or a path chosen in the save dialog); returns the path
     /// and the export warnings (also shown to the user).
     pub fn save_as(&mut self, path: Option<String>) -> Result<(String, Vec<String>), String> {
@@ -706,13 +735,22 @@ impl PhotocraftApp {
             Some(p) => p,
             None => self.services.pick_save.as_mut().and_then(|f| f(&suggested)).ok_or("cancelled")?,
         };
+        let settings = self.active_export_settings();
+        let index = self.session.active_index().ok_or("no document")?;
+        // A project photo's sidecar is written without its album look (that is the album's).
+        let doc = self.session.document_to_save(index, &path).ok_or("no document")?;
         let export = self.services.export.as_ref().ok_or("no exporter configured")?;
-        let (bytes, warnings) = export(&st.doc, &path, &ExportSettings::default())?;
+        let (bytes, warnings) = export(&doc, &path, &settings)?;
         let write = self.services.write.as_mut().ok_or("no writer configured")?;
         write(&path, &bytes)?;
         if let Some(st) = self.session.active_mut() {
             st.path = Some(path.clone());
             st.saved_revision = st.revision;
+        }
+        if self.session.active_photo_sidecar().is_some_and(|s| s.replace('\\', "/") == path.replace('\\', "/"))
+            && let Err(e) = photocraft_engine::project_cmds::save_photo_look(&mut self.session)
+        {
+            notices::error(self, e.to_string());
         }
         self.ui.status = format!("Saved {path}");
         // "Save Document" script events and File › Generate › Image Assets.
@@ -736,8 +774,13 @@ impl PhotocraftApp {
         let target = path
             .or_else(|| state.path.clone().filter(|p| photocraft_engine::file_cmds::saves_in_place(p)))
             .ok_or("pass `path`: a save without one writes back only to the document's own PSD, PSB or .pcraft file")?;
+        let settings = self.active_export_settings();
+        let index = self.session.active_index().ok_or("no document")?;
+        // As File › Save: a project photo's sidecar never holds its album look (the look itself
+        // is written with the project).
+        let doc = self.session.document_to_save(index, &target).ok_or("no document")?;
         let export = self.services.export.as_ref().ok_or("no exporter configured")?;
-        let (bytes, warnings) = export(&state.doc, &target, &ExportSettings::default())?;
+        let (bytes, warnings) = export(&doc, &target, &settings)?;
         let write = self.services.automation_write.as_mut().ok_or("automation write authority is not configured")?;
         write(&target, &bytes)?;
         if let Some(state) = self.session.active_mut() {
@@ -850,6 +893,7 @@ impl eframe::App for PhotocraftApp {
         self.collect_screenshots(ctx);
         self.issue_screenshots(ctx);
         prefs_ui::tick(self, ctx);
+        monitor_follow::tick(self, ctx);
         // A window bigger than its display (1440 × 900 on 1366 × 768) runs under the taskbar:
         // maximize it into the work area once (#315).
         work_area::fit_window(ctx);
@@ -868,7 +912,13 @@ impl eframe::App for PhotocraftApp {
         // Finder double-click / Open With / Dock drops (macOS open-documents events).
         self.drain_os_events(ctx);
         // Files dropped onto the window open as documents (with their path, like File › Open).
-        self.open_dropped(ctx.input(|i| i.raw.dropped_files.clone()));
+        // In the Library they are imported into the shown album instead.
+        let dropped = ctx.input(|i| i.raw.dropped_files.clone());
+        if !library_ui::take_drop(self, &dropped) {
+            self.open_dropped(dropped);
+        }
+        library_ui::tick(self);
+        notices::engine(self);
         // The control transport wakes the UI on arrival (ctx.request_repaint); only poll while a
         // screenshot is pending. (Polling every 50 ms here made idle apps render at 20 fps.)
         if !self.pending_screenshots.is_empty() {
@@ -898,22 +948,33 @@ impl eframe::App for PhotocraftApp {
         if chrome {
             panels::title_bar(self, ui);
         }
-        if chrome && self.ui.panels.options_bar {
+        // The Library replaces the editor's tools, options and panels with its own.
+        let library = library_ui::active(self);
+        if chrome && self.ui.panels.options_bar && !library {
             panels::options_bar(self, ui);
         }
         if chrome && self.ui.panels.status_bar {
             panels::status_bar(self, ui);
         }
-        if chrome && self.ui.panels.toolbar {
+        if chrome && self.ui.panels.toolbar && !library {
             panels::toolbar(self, ui);
         }
-        if chrome {
+        if chrome && !library {
             panels::right_dock(self, ui);
+        }
+        // Edit module with a project: the current album's filmstrip under the canvas, above the
+        // status bar (between the Tools rail and the dock, which keep the full height they need).
+        if chrome && !library {
+            clips_ui::bar(self, ui);
         }
         let t = theme::Tokens::get(&ctx);
         let backdrop = if chrome { prefs_ui::pasteboard_color(self).unwrap_or(t.canvas) } else { egui::Color32::BLACK };
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(backdrop)).show(ui, |ui| {
-            canvas::document_area(self, ui);
+            if library {
+                library_ui::view(self, ui);
+            } else {
+                canvas::document_area(self, ui);
+            }
         });
         panels::properties_window(self, &ctx);
         brush_panel::window(self, &ctx);

@@ -73,6 +73,17 @@ impl Cfa {
         [self.color(x0, y0), self.color(x0 + 1, y0), self.color(x0, y0 + 1), self.color(x0 + 1, y0 + 1)]
     }
 
+    /// `true` for a demosaicable pattern: a period of 1–16 cells each way,
+    /// one colour per cell, and red, green and blue all present (Bayer,
+    /// X-Trans…).
+    pub fn is_three_colour(&self) -> bool {
+        (1..=16).contains(&self.width)
+            && (1..=16).contains(&self.height)
+            && self.colors.len() == self.width * self.height
+            && (0..3).all(|c| self.colors.contains(&c))
+            && self.colors.iter().all(|c| *c <= 2)
+    }
+
     /// `true` for a Bayer pattern: a 2×2 period holding one red, one blue and two
     /// diagonal greens.
     pub fn is_bayer(&self) -> bool {

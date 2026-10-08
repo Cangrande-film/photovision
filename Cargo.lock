@@ -3395,6 +3395,7 @@ dependencies = [
  "log",
  "open",
  "photocraft-automation",
+ "photocraft-cms",
  "photocraft-codecs",
  "photocraft-color",
  "photocraft-compose",
@@ -3537,6 +3538,7 @@ dependencies = [
  "photocraft-ops",
  "photocraft-paint",
  "photocraft-plugins",
+ "photocraft-project",
  "photocraft-psd",
  "photocraft-raster",
  "photocraft-raw",
@@ -3646,6 +3648,15 @@ dependencies = [
  "thiserror 2.0.21",
  "wasmi",
  "wat",
+]
+
+[[package]]
+name = "photocraft-project"
+version = "0.3.0"
+dependencies = [
+ "photocraft-cms",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

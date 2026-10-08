@@ -297,7 +297,9 @@ pub fn title_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 let max = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
                 ui.ctx().send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
             }
-            let title = app.session.active().map(|d| format!("{}{}", d.doc.name, if d.is_dirty() { "  •" } else { "" })).unwrap_or_else(|| "PhotoVision".into());
+            let title = crate::library_ui::window_title(app)
+                .or_else(|| app.session.active().map(|d| format!("{}{}", d.doc.name, if d.is_dirty() { "  •" } else { "" })))
+                .unwrap_or_else(|| "PhotoVision".into());
             // The menus and the right-hand controls are laid out first; the title is centred in
             // whatever room is left between them, shortened or dropped rather than drawn over them.
             let (mut menus_right, mut controls_left) = (full.left(), full.right());
@@ -337,6 +339,8 @@ pub fn title_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         if ui.add(discord).on_hover_text(format!("Join the ArtCraft Discord ({})", crate::links::DISCORD)).clicked() {
                             crate::links::open(app, ui.ctx(), crate::links::DISCORD);
                         }
+                        // "Library | Edit" while a project is open.
+                        crate::library_ui::module_switch(app, ui);
                         ui.min_rect().left()
                     })
                     .inner;
@@ -872,6 +876,10 @@ pub fn status_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     label(ui, &format!("{w} × {h} px"));
                     widgets::vline(ui, 16.0);
                     label(ui, &crate::i18n::trn(crate::i18n::current(), layers as u64, "{n} layer", "{n} layers"));
+                    if let Some(p) = crate::chrome_ui::pipeline_text(app, i) {
+                        widgets::vline(ui, 16.0);
+                        label(ui, &p);
+                    }
                 } else {
                     label(ui, tl!("No document"));
                 }
@@ -1622,6 +1630,11 @@ fn layer_row(
     }
     let thumb = Rect::from_min_size(pos2(x, rect.center().y - ts / 2.0), vec2(ts, ts));
     draw_layer_thumb(app, ctx, ui, doc, l, thumb, row.primary);
+    // PhotoVision: the photo's album look group (shared by the album) is ringed in the accent.
+    let look_tip = crate::album_look_ui::group_tooltip(app, l.id);
+    if look_tip.is_some() {
+        painter.rect_stroke(thumb.expand(1.0), 6.0, Stroke::new(1.5, t.accent), StrokeKind::Outside);
+    }
     x += ts + 6.0;
     // Link chains and pixel / vector mask thumbnails (#153).
     let masks = crate::mask_thumbs_ui::paint(app, ctx, ui, &painter, doc, l, &mut x, rect.center().y, ts, actions);
@@ -1643,7 +1656,7 @@ fn layer_row(
     }
     // Right-hand indicators first; the name gets what is left and ends in "…" (#144).
     let fx_open = app.session.active().is_none_or(|d| !d.fx_collapsed.contains(&l.id));
-    let (name_right, indicators, fx_toggled) = crate::layer_row_ui::indicators(ui, &painter, rect, x, l, fx_open, actions);
+    let (name_right, indicators, fx_toggled) = crate::layer_row_ui::indicators(ui, &painter, rect, x, l, fx_open, look_tip.as_deref(), actions);
     let name_color = if l.visible { t.text } else { t.text_faint };
     let font = if selected && !t.pro { theme::medium(13.0) } else { egui::FontId::proportional(if t.pro { 12.0 } else { 13.0 }) };
     // Photoshop before 2026 set the Background layer's name in italics; 2026 sets it upright.

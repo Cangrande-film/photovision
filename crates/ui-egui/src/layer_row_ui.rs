@@ -35,6 +35,8 @@ pub enum Indicator {
     Fx,
     Link,
     Blend,
+    /// PhotoVision: this group is the photo's album look (shared by the album's photos).
+    AlbumLook,
 }
 
 /// Where one row's name and indicators went this frame (screen points).
@@ -100,9 +102,11 @@ pub fn truncated(painter: &Painter, text: &str, font: FontId, color: egui::Color
     Some(painter.layout_job(job))
 }
 
-/// Paint `l`'s right-hand indicators in `row` and handle the effects triangle. Returns the
+/// Paint `l`'s right-hand indicators in `row` and handle the effects triangle. `album_look` is
+/// the tooltip of the album look badge when `l` is the photo's album look group. Returns the
 /// name's right limit, the indicator rects, and whether the triangle was clicked this frame (so
 /// the row doesn't also treat the click as a selection).
+#[allow(clippy::too_many_arguments)]
 pub fn indicators(
     ui: &egui::Ui,
     painter: &Painter,
@@ -110,6 +114,7 @@ pub fn indicators(
     name_left: f32,
     l: &Layer,
     fx_open: bool,
+    album_look: Option<&str>,
     actions: &mut Vec<(String, Value)>,
 ) -> (f32, Vec<(Indicator, Rect)>, bool) {
     let t = Tokens::get(ui.ctx());
@@ -120,7 +125,11 @@ pub fn indicators(
     let show_blend = l.blend != BlendMode::Normal && l.blend != BlendMode::PassThrough;
     let fx_galley = has_fx.then(|| painter.layout_no_wrap("fx".into(), fx_font, t.text_dim));
     let blend_galley = show_blend.then(|| painter.layout_no_wrap(tl!(l.blend.label()).into(), blend_font, t.text_faint));
+    let look_galley = album_look.map(|_| painter.layout_no_wrap(tl!("Look").into(), theme::semibold(10.0), t.accent_text));
     let mut items = Vec::new();
+    if let Some(g) = &look_galley {
+        items.push((Indicator::AlbumLook, g.size().x + 10.0));
+    }
     if locked {
         items.push((Indicator::Lock, ICON_W));
     }
@@ -149,6 +158,18 @@ pub fn indicators(
             Indicator::Blend => {
                 if let Some(g) = blend_galley.clone() {
                     painter.galley(pos2(r.left(), cy - g.size().y / 2.0), g, t.text_faint);
+                }
+            }
+            Indicator::AlbumLook => {
+                if let Some(g) = look_galley.clone() {
+                    let pill = Rect::from_center_size(r.center(), vec2(r.width(), g.size().y + 4.0));
+                    painter.rect_filled(pill, t.radius_sm, t.accent_soft);
+                    painter.rect_stroke(pill, t.radius_sm, Stroke::new(1.0, t.accent_border), egui::StrokeKind::Inside);
+                    painter.galley(pill.center() - g.size() / 2.0, g, t.accent_text);
+                    let resp = ui.interact(pill, ui.id().with(("album-look-badge", l.id.0)), Sense::hover());
+                    if let Some(tip) = album_look {
+                        resp.on_hover_text(tip);
+                    }
                 }
             }
             Indicator::FxTriangle => {

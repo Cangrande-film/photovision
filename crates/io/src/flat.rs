@@ -271,7 +271,29 @@ pub fn export_flat(doc: &Document, format: Format, opts: &ExportOptions) -> Resu
         img = cmyk_image_to_srgb(&img)?;
         warnings.push(format!("CMYK converted to sRGB for {format:?} through the document's colour profile"));
     }
-    if matches!(format, Format::OpenExr | Format::Hdr) {
+    // The output colour space of a colour pipeline (see `ExportOptions::target`).
+    let mut targeted = false;
+    if let Some(t) = &opts.target {
+        if matches!(format, Format::OpenExr | Format::Hdr) {
+            warnings.push(format!("output space {} ignored: {format:?} stores linear sRGB", t.profile.description));
+        } else if t.profile.color_space != photocraft_cms::ColorSpace::Rgb {
+            warnings.push(format!("output space {} ignored: only RGB output spaces are supported", t.profile.description));
+        } else if img.layout().is_rgb() {
+            if let Some(c) = convert_rgb(&img, &t.profile, t.intent, t.bpc, img.sample_type())? {
+                img = c;
+            }
+            if format.caps().icc {
+                img = img.with_icc(Some(t.profile.to_bytes().to_vec()));
+            } else {
+                img = img.with_icc(None);
+                warnings.push(format!("colours are in {} but {format:?} can't embed the profile", t.profile.description));
+            }
+            targeted = true;
+        }
+    }
+    if targeted {
+        // Already in the output space.
+    } else if matches!(format, Format::OpenExr | Format::Hdr) {
         // OpenEXR and Radiance HDR store linear light (read back as linear sRGB, see [`import_flat`]).
         if let Some(linear) = convert_rgb(&img, Builtin::LinearSrgb.profile(), Intent::RelativeColorimetric, false, CSample::F32)? {
             img = linear;

@@ -1,6 +1,6 @@
 [package]
 name = "photocraft-raw"
-description = "Clean-room, pure-Rust camera raw decoder and developer (DNG, CR2, TIFF/EP raws)"
+description = "Clean-room, pure-Rust camera raw decoder and developer (DNG, CR2, RAF, TIFF/EP raws)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,6 +11,8 @@ default = []
 # Synthetic raw-file generators (DNG / CR2 / TIFF-EP writers and a lossless-JPEG
 # encoder) for tests and fuzz seeds.
 testgen = []
+# Real camera files in corpus/raw/ (opt-in, copied in by hand). Fail when the corpus is missing.
+corpus = []
 
 [dependencies]
 

@@ -27,7 +27,7 @@ use photocraft_doc::Document;
 use photocraft_raster::Rgba8Image;
 
 use crate::color_cmds::{ColorState, composite_profile, mode_space, profile_from_bytes, resolve_profile};
-use crate::{EngineError, Result};
+use crate::Result;
 
 /// Display intent and black point compensation of the monitor transform.
 pub const DISPLAY_INTENT: Intent = Intent::RelativeColorimetric;
@@ -150,11 +150,14 @@ fn hash_of(v: impl std::hash::Hash) -> u64 {
 /// The resolved monitor profile and what it was resolved from (setting, platform bytes).
 type MonitorCache = Option<(String, Option<Arc<Vec<u8>>>, Arc<Profile>)>;
 
+/// Mode colour space, document profile, monitor profile, pipeline output (profile, intent, bpc).
+type CanvasKey = (ColorSpace, u64, u64, Option<(u64, Intent, bool)>);
+
 /// Caches of [`ColorState`] for the display (monitor profile and per-document displays).
 #[derive(Default)]
 pub struct DisplayCaches {
     monitor: Mutex<MonitorCache>,
-    canvas: Mutex<HashMap<(ColorSpace, u64, u64), Arc<CanvasDisplay>>>,
+    canvas: Mutex<HashMap<CanvasKey, Arc<CanvasDisplay>>>,
 }
 
 impl ColorState {
@@ -185,27 +188,33 @@ impl ColorState {
         p
     }
 
-    /// How the canvas shows `doc` (cached per document profile, mode and monitor profile).
+    /// How the canvas shows `doc` (cached per document profile, mode, monitor profile and colour
+    /// pipeline output). With a pipeline whose output differs from the document's (working)
+    /// profile, the transform soft-proofs through the output: working → output (the pipeline's
+    /// intent and BPC, clipped to the output gamut) → monitor, so the canvas shows what a flat
+    /// export will look like. View › Proof Colors replaces this (see `display_transform`).
     pub fn canvas_display(&self, doc: &Document) -> Result<Arc<CanvasDisplay>> {
         let space = mode_space(doc.mode);
         let doc_hash = doc.icc_profile.as_ref().and_then(|b| profile_from_bytes(b).ok()).filter(|p| p.color_space == space).map_or(0, |p| p.content_hash());
         let monitor = self.monitor();
-        let key = (space, doc_hash, monitor.content_hash());
+        let output = self.display_output(doc);
+        let out_key = output.as_ref().map(|(p, i, b)| (p.content_hash(), *i, *b));
+        let key = (space, doc_hash, monitor.content_hash(), out_key);
         if let Some(d) = self.display.canvas.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
             return Ok(d.clone());
         }
         let composite = composite_profile(doc);
         let encode_srgb = is_linear_rgb(&composite);
         let source = if encode_srgb { Arc::new(srgb_curve_twin(&composite)) } else { composite };
-        let transform = if source.content_hash() == monitor.content_hash() {
+        let transform = if output.is_none() && source.content_hash() == monitor.content_hash() {
             None
         } else {
-            let t = Transform::new(&source, &monitor, DISPLAY_INTENT, DISPLAY_BPC).map_err(|e| EngineError::Other(format!("colour management: {e}")))?;
+            let t = self.plain_display_transform(doc, &source, &monitor)?;
             (!is_identity(&t, space == ColorSpace::Gray)).then(|| Arc::new(t))
         };
         let d = Arc::new(CanvasDisplay {
             encode_srgb,
-            key: hash_of((source.content_hash(), monitor.content_hash(), encode_srgb, transform.is_some())),
+            key: hash_of((source.content_hash(), monitor.content_hash(), encode_srgb, transform.is_some(), out_key)),
             source,
             monitor,
             transform,

@@ -368,6 +368,9 @@ pub const F_QUANT: u32 = 32768;
 pub const F_ADD_DIFF: u32 = 16384;
 /// Blend / Atop / FxMerge of a type layer: coverage mixed at `psblend::TEXT_GAMMA`.
 pub const F_TEXT_GAMMA: u32 = 8192;
+/// 32-bit float document: `Adjust` keeps values outside 0..1 (`compose::adjust::apply_opts`
+/// unclipped) and the `F_ADD_DIFF` lerp clips only coverage.
+pub const F_FLOAT: u32 = 262144;
 
 /// `F_TEXT_GAMMA` for type layers while text gamma blending is on; the gamma goes in `p4.w`.
 fn gamma_flag(layer: &Layer) -> u32 {
@@ -604,7 +607,7 @@ impl<'a> Planner<'a> {
             p.a = Some(after);
             p.b = Some(with);
             p.c = Some(without);
-            p.flags = F_ADD_DIFF;
+            p.flags = F_ADD_DIFF | self.float_flag();
             return Ok(self.emit(p));
         }
 
@@ -880,11 +883,18 @@ impl<'a> Planner<'a> {
         }
         let mut p = Pass::new(Kernel::Adjust, 0);
         p.a = Some(src);
-        let (kind, params, lut) = adjustment_program(adj, self.cx.transfer, photocraft_compose::adjustment_quantum(self.cx.depth));
+        let unclipped = self.float_flag() != 0;
+        let (kind, params, lut) = adjustment_program_opts(adj, self.cx.transfer, photocraft_compose::adjustment_quantum(self.cx.depth), unclipped);
         p.adjust_kind = kind;
         p.params = params;
         p.lut = lut;
+        p.flags = self.float_flag();
         Ok(self.emit(p))
+    }
+
+    /// [`F_FLOAT`] for 32-bit float documents (unclipped adjustments), else 0.
+    fn float_flag(&self) -> u32 {
+        if self.cx.depth == photocraft_color::SampleType::F32 { F_FLOAT } else { 0 }
     }
 
     /// `composite_with_effects` (atop = false) or the clipped-layer variant of `composite_atop`
@@ -1428,6 +1438,12 @@ pub fn adjustment_on_gpu(adj: &Adjustment) -> bool {
 
 /// Adjustment → (kernel kind, parameters, LUT rows). Kinds are the `switch` in `adjust()`.
 pub fn adjustment_program(adj: &Adjustment, transfer: Transfer, quantum: Option<f32>) -> Program {
+    adjustment_program_opts(adj, transfer, quantum, false)
+}
+
+/// [`adjustment_program`] for an `unclipped` (32-bit float) document: Levels rows are built
+/// without clipping (`compose::adjust::tone_luts_opts`); the pass also needs [`F_FLOAT`].
+pub fn adjustment_program_opts(adj: &Adjustment, transfer: Transfer, quantum: Option<f32>, unclipped: bool) -> Program {
     let mut p = [[0.0f32; 4]; 4];
     match adj {
         Adjustment::Invert => (1, p, None),
@@ -1460,7 +1476,9 @@ pub fn adjustment_program(adj: &Adjustment, transfer: Transfer, quantum: Option<
             (6, p, None)
         }
         // RGB space only (see `adjustment_on_gpu`); the rows are the CPU's channel∘master LUTs.
-        Adjustment::Levels { .. } | Adjustment::Curves { .. } => (7, p, Some(adjust::tone_luts_q(adj, quantum).iter().take(3).map(|t| to_row(t)).collect())),
+        Adjustment::Levels { .. } | Adjustment::Curves { .. } => {
+            (7, p, Some(adjust::tone_luts_opts(adj, quantum, unclipped).iter().take(3).map(|t| to_row(t)).collect()))
+        }
         Adjustment::HueSaturation { hue, saturation, lightness, colorize, ranges } => {
             p[0] = [*hue, saturation / 100.0, lightness / 100.0, if *colorize { 1.0 } else { 0.0 }];
             if !*colorize && ranges.iter().any(|r| !r.is_neutral()) {
@@ -1518,7 +1536,7 @@ pub fn adjustment_program(adj: &Adjustment, transfer: Transfer, quantum: Option<
             }
             (15, p, Some(vec![row]))
         }
-        Adjustment::ColorLookup { lut: Some(table), size, tetrahedral, dither, .. } if *size >= 2 && table.len() >= (*size as usize).pow(3) * 3 => {
+        Adjustment::ColorLookup { lut: Some(table), size, tetrahedral, dither, domain, .. } if *size >= 2 && table.len() >= (*size as usize).pow(3) * 3 => {
             // The flattened table (n³ RGB triplets) spans as many 4096-wide rows as it needs.
             let n = *size as usize;
             let len = n * n * n * 3;
@@ -1531,6 +1549,10 @@ pub fn adjustment_program(adj: &Adjustment, transfer: Transfer, quantum: Option<
                 })
                 .collect();
             p[0] = [n as f32, if *tetrahedral { 1.0 } else { 0.0 }, if *dither { 1.0 } else { 0.0 }, 0.0];
+            // Input domain (min in p1, max in p2): the shader looks up (c − min) / (max − min).
+            let [lo, hi] = domain.unwrap_or([[0.0; 3], [1.0; 3]]);
+            p[1] = [lo[0], lo[1], lo[2], 0.0];
+            p[2] = [hi[0], hi[1], hi[2], 0.0];
             (16, p, Some(rows))
         }
         // Identity on the CPU too (not evaluated there).

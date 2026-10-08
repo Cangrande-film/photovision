@@ -4,7 +4,7 @@
 use photocraft_codecs::{ChannelLayout, EncodeOptions, Format, Image};
 use photocraft_color::{ColorMode, SampleType};
 use photocraft_io::{IoError, import};
-use photocraft_raw::testgen::{Cr2Spec, DngSpec, TiffBuilder, Val, mosaic, scene};
+use photocraft_raw::testgen::{Cr2Spec, DngSpec, RafSpec, TiffBuilder, Val, XTRANS, cr3_cmp1, cr3_with_jpeg, mosaic, mosaic_pattern, scene};
 
 #[test]
 fn dng_opens_as_16_bit_prophoto() {
@@ -80,6 +80,40 @@ fn unsupported_raw_without_preview_is_a_clear_error() {
         Err(e) => panic!("expected a raw error, got {e}"),
         Ok(_) => panic!("CR3 must not decode yet"),
     }
+}
+
+#[test]
+fn xtrans_raf_opens() {
+    let (w, h) = (48, 36);
+    let spec = RafSpec {
+        width: w,
+        height: h,
+        data: mosaic_pattern(&scene(w, h), w, &XTRANS, 6, 256, 16000),
+        bits: 14,
+        xtrans_layout: Some(RafSpec::layout_for(&XTRANS)),
+        black: vec![256; 36],
+        wb_grb: [302, 604, 453],
+        crop: (0, 0, h as u16, w as u16),
+        orientation: 6,
+        truncate_data_to: None,
+    };
+    let r = import("DSCF0001.RAF", &spec.build()).unwrap();
+    // Orientation 6 (from the preview's EXIF) rotates 48×36 to 36×48.
+    assert_eq!((r.document.size.width, r.document.size.height), (36, 48));
+    assert_eq!(r.document.depth, SampleType::U16);
+    assert!(r.warnings.iter().any(|w| w.contains("RAF") && w.contains("X-Synthetic")), "{:?}", r.warnings);
+}
+
+#[test]
+fn cr3_opens_its_embedded_jpeg() {
+    // The full-size JPEG track is larger than the PRVW (1620×1080) and THMB stand-ins, as in camera files.
+    let (w, h) = (1640u32, 1100u32);
+    let img = Image::from_u8(w, h, ChannelLayout::Rgb, vec![90; (w * h * 3) as usize]).unwrap();
+    let jpeg = photocraft_codecs::encode(&img, Format::Jpeg, &EncodeOptions::default()).unwrap();
+    let b = cr3_with_jpeg("Canon EOS Synthetic", Some(jpeg), cr3_cmp1(64, 48, 14, 0));
+    let r = import("IMG_0001.CR3", &b).unwrap();
+    assert_eq!((r.document.size.width, r.document.size.height), (w, h));
+    assert!(r.warnings.first().is_some_and(|w| w.contains("CR3") && w.contains("CRX") && w.contains("embedded")), "{:?}", r.warnings);
 }
 
 #[test]

@@ -36,10 +36,26 @@ pub enum Builtin {
     LabD50,
     /// Synthetic coated-offset CMYK (300 % total ink, medium GCR); see [`crate::synth`].
     CoatedCmyk,
+    /// Rec. ITU-R BT.709 primaries, D65, pure gamma 2.4 (the BT.1886 display EOTF with a zero black level).
+    Rec709Bt1886,
+    /// Rec. ITU-R BT.709 primaries, D65, the inverse of the BT.709 camera OETF (scene-referred).
+    Rec709Oetf,
+    /// P3 primaries, D65, pure gamma 2.6 (SMPTE RP 431-2 transfer on a D65 white).
+    P3D65,
+    /// DCI-P3: P3 primaries, the DCI white (0.314, 0.351), pure gamma 2.6 (SMPTE RP 431-2).
+    DciP3,
+    /// Rec. ITU-R BT.2020 primaries, D65, pure gamma 2.4.
+    Rec2020G24,
+    /// Rec. ITU-R BT.2020 primaries, D65, linear.
+    LinearRec2020,
+    /// P3 primaries, D65, linear.
+    LinearP3D65,
+    /// ACEScg (AMPAS S-2014-004): AP1 primaries, the ACES white (≈ D60), linear.
+    AcesCg,
 }
 
 impl Builtin {
-    pub const ALL: [Builtin; 10] = [
+    pub const ALL: [Builtin; 18] = [
         Builtin::Srgb,
         Builtin::DisplayP3,
         Builtin::AdobeRgbCompat,
@@ -50,6 +66,14 @@ impl Builtin {
         Builtin::SGray,
         Builtin::LabD50,
         Builtin::CoatedCmyk,
+        Builtin::Rec709Bt1886,
+        Builtin::Rec709Oetf,
+        Builtin::P3D65,
+        Builtin::DciP3,
+        Builtin::Rec2020G24,
+        Builtin::LinearRec2020,
+        Builtin::LinearP3D65,
+        Builtin::AcesCg,
     ];
 
     /// Stable identifier used by commands and settings.
@@ -65,6 +89,14 @@ impl Builtin {
             Builtin::SGray => "sgray",
             Builtin::LabD50 => "lab-d50",
             Builtin::CoatedCmyk => "coated-cmyk",
+            Builtin::Rec709Bt1886 => "rec709-bt1886",
+            Builtin::Rec709Oetf => "rec709-oetf",
+            Builtin::P3D65 => "p3-d65",
+            Builtin::DciP3 => "dci-p3",
+            Builtin::Rec2020G24 => "rec2020-g24",
+            Builtin::LinearRec2020 => "linear-rec2020",
+            Builtin::LinearP3D65 => "linear-p3-d65",
+            Builtin::AcesCg => "acescg",
         }
     }
 
@@ -81,7 +113,44 @@ impl Builtin {
             Builtin::SGray => "sGray (sRGB tone curve, Photocraft)",
             Builtin::LabD50 => "Lab D50 identity (Photocraft)",
             Builtin::CoatedCmyk => crate::synth::DESCRIPTION,
+            Builtin::Rec709Bt1886 => "Rec. 709 Gamma 2.4 (BT.1886, Photocraft)",
+            Builtin::Rec709Oetf => "Rec. 709 Camera OETF (Photocraft)",
+            Builtin::P3D65 => "P3-D65 Gamma 2.6 (Photocraft)",
+            Builtin::DciP3 => "DCI-P3 Gamma 2.6 (Photocraft)",
+            Builtin::Rec2020G24 => "Rec. 2020 Gamma 2.4 (Photocraft)",
+            Builtin::LinearRec2020 => "Linear Rec. 2020 (Photocraft)",
+            Builtin::LinearP3D65 => "Linear P3-D65 (Photocraft)",
+            Builtin::AcesCg => "ACEScg (AP1 linear, Photocraft)",
         }
+    }
+
+    /// Short human-readable name for menus and pickers (English; UIs translate it).
+    pub fn label(self) -> &'static str {
+        match self {
+            Builtin::Srgb => "sRGB",
+            Builtin::DisplayP3 => "Display P3",
+            Builtin::AdobeRgbCompat => "Adobe RGB (1998) compatible",
+            Builtin::ProPhotoCompat => "ProPhoto RGB compatible",
+            Builtin::LinearSrgb => "Linear Rec.709/sRGB",
+            Builtin::Rec2020 => "Rec.2020",
+            Builtin::GrayGamma22 => "Gray Gamma 2.2",
+            Builtin::SGray => "sGray",
+            Builtin::LabD50 => "Lab D50",
+            Builtin::CoatedCmyk => "Coated CMYK",
+            Builtin::Rec709Bt1886 => "Rec.709 Gamma 2.4",
+            Builtin::Rec709Oetf => "Rec.709 (Camera)",
+            Builtin::P3D65 => "P3-D65",
+            Builtin::DciP3 => "DCI-P3",
+            Builtin::Rec2020G24 => "Rec.2020 Gamma 2.4",
+            Builtin::LinearRec2020 => "Linear Rec.2020",
+            Builtin::LinearP3D65 => "Linear P3-D65",
+            Builtin::AcesCg => "ACEScg",
+        }
+    }
+
+    /// Does the profile store linear light (an RGB matrix profile with identity curves)?
+    pub fn is_linear(self) -> bool {
+        matches!(self, Builtin::LinearSrgb | Builtin::LinearRec2020 | Builtin::LinearP3D65 | Builtin::AcesCg)
     }
 
     /// Looks up an id (case-insensitive; a few aliases and the descriptions are accepted).
@@ -94,6 +163,14 @@ impl Builtin {
             "prophoto" | "prophotorgb" | "prophotocompat" | "romm" | "rommrgb" => Some(Builtin::ProPhotoCompat),
             "linearsrgb" | "srgblinear" | "linear" => Some(Builtin::LinearSrgb),
             "rec2020" | "bt2020" => Some(Builtin::Rec2020),
+            "rec709bt1886" | "bt1886" | "rec709g24" | "rec709gamma24" => Some(Builtin::Rec709Bt1886),
+            "rec709oetf" | "rec709camera" | "bt709oetf" => Some(Builtin::Rec709Oetf),
+            "p3d65" | "p3d65g26" | "p3d65gamma26" => Some(Builtin::P3D65),
+            "dcip3" | "p3dci" => Some(Builtin::DciP3),
+            "rec2020g24" | "rec2020gamma24" | "bt2020g24" => Some(Builtin::Rec2020G24),
+            "linearrec2020" | "rec2020linear" | "linearbt2020" => Some(Builtin::LinearRec2020),
+            "linearp3d65" | "p3d65linear" | "linearp3" => Some(Builtin::LinearP3D65),
+            "acescg" | "ap1" | "acescgap1" => Some(Builtin::AcesCg),
             "gray" | "graygamma22" | "gamma22" => Some(Builtin::GrayGamma22),
             "sgray" | "graysrgb" => Some(Builtin::SGray),
             "lab" | "labd50" | "cielab" => Some(Builtin::LabD50),
@@ -105,7 +182,7 @@ impl Builtin {
 
     /// The profile (built once per process).
     pub fn profile(self) -> &'static Profile {
-        static CELLS: [OnceLock<Profile>; 10] = [const { OnceLock::new() }; 10];
+        static CELLS: [OnceLock<Profile>; Builtin::ALL.len()] = [const { OnceLock::new() }; Builtin::ALL.len()];
         // `ALL` lists the variants in declaration order (checked by `all_in_declaration_order`),
         // so the discriminant is the cell index.
         CELLS[self as usize].get_or_init(|| build(self))
@@ -247,18 +324,30 @@ fn build(b: Builtin) -> Profile {
         [[0.7347, 0.2653], [0.1596, 0.8404], [0.0366, 0.0001]],
         [[0.708, 0.292], [0.170, 0.797], [0.131, 0.046]],
     );
+    // Rec. 709 OETF inverse: V = 1.099 L^0.45 − 0.099 (L ≥ 0.018), 4.5 L below.
+    let bt709_trc = || {
+        let a = 1.099;
+        Curve::Parametric { kind: 3, p: [1.0 / 0.45, 1.0 / a, (a - 1.0) / a, 1.0 / 4.5, 0.081, 0.0, 0.0] }
+    };
+    // ACES AP1 primaries and white (AMPAS S-2014-004).
+    let ap1 = [[0.713, 0.293], [0.165, 0.830], [0.128, 0.044]];
+    let aces_white = math::xy_to_xyz([0.32168, 0.33767]);
+    let dci_white = math::xy_to_xyz([0.314, 0.351]);
     match b {
         Builtin::Srgb => rgb(b.description(), srgb_p, d65(), srgb_trc()),
         Builtin::DisplayP3 => rgb(b.description(), p3, d65(), srgb_trc()),
         Builtin::AdobeRgbCompat => rgb(b.description(), adobe, d65(), Curve::Gamma(563.0 / 256.0)),
         Builtin::ProPhotoCompat => rgb(b.description(), romm, math::D50, Curve::Gamma(1.8)),
         Builtin::LinearSrgb => rgb(b.description(), srgb_p, d65(), Curve::Gamma(1.0)),
-        Builtin::Rec2020 => {
-            // Rec. 709 OETF inverse: V = 1.099 L^0.45 − 0.099 (L ≥ 0.018), 4.5 L below.
-            let a = 1.099;
-            let trc = Curve::Parametric { kind: 3, p: [1.0 / 0.45, 1.0 / a, (a - 1.0) / a, 1.0 / 4.5, 0.081, 0.0, 0.0] };
-            rgb(b.description(), bt2020, d65(), trc)
-        }
+        Builtin::Rec2020 => rgb(b.description(), bt2020, d65(), bt709_trc()),
+        Builtin::Rec709Bt1886 => rgb(b.description(), srgb_p, d65(), Curve::Gamma(2.4)),
+        Builtin::Rec709Oetf => rgb(b.description(), srgb_p, d65(), bt709_trc()),
+        Builtin::P3D65 => rgb(b.description(), p3, d65(), Curve::Gamma(2.6)),
+        Builtin::DciP3 => rgb(b.description(), p3, dci_white, Curve::Gamma(2.6)),
+        Builtin::Rec2020G24 => rgb(b.description(), bt2020, d65(), Curve::Gamma(2.4)),
+        Builtin::LinearRec2020 => rgb(b.description(), bt2020, d65(), Curve::Gamma(1.0)),
+        Builtin::LinearP3D65 => rgb(b.description(), p3, d65(), Curve::Gamma(1.0)),
+        Builtin::AcesCg => rgb(b.description(), ap1, aces_white, Curve::Gamma(1.0)),
         Builtin::GrayGamma22 => gray(b.description(), Curve::Gamma(2.2)),
         Builtin::SGray => gray(b.description(), srgb_trc()),
         Builtin::LabD50 => lab(),

@@ -14,7 +14,7 @@ use std::sync::Arc;
 /// Everything File › Open reads: PhotoCraft and Photoshop documents, flat images, and Photoshop
 /// brushes (.abr) and gradients (.grd), which go to the preset libraries.
 const OPEN_EXTS: &[&str] = &[
-    "pcraft", "psd", "psb", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "tga", "ico", "qoi", "exr", "hdr", "pbm", "pgm", "ppm", "pam", "pfm",
+    "pcraft", "pvision", "psd", "psb", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "tga", "ico", "qoi", "exr", "hdr", "pbm", "pgm", "ppm", "pam", "pfm",
     "dng", "cr2", "cr3", "nef", "nrw", "arw", "pef", "orf", "rw2", "raf", "abr", "grd",
 ];
 
@@ -23,7 +23,7 @@ const OPEN_EXTS: &[&str] = &[
 /// keeps defaulting to Photoshop.
 const SAVE_FILTERS: &[(&str, &[&str])] = &[
     ("Photoshop", &["psd", "psb"]),
-    ("PhotoVision", &["pcraft"]),
+    ("PhotoVision", &["pcraft", "pvision"]),
     ("PNG", &["png"]),
     ("JPEG", &["jpg"]),
     ("TIFF", &["tif"]),
@@ -40,6 +40,19 @@ fn save_filters(suggested: &str) -> Vec<(&'static str, &'static [&'static str])>
         v.insert(0, f);
     }
     v
+}
+
+/// The Library's file dialogs (projects, photos to import, folders); empty when cancelled.
+fn pick_paths(what: photocraft_ui_egui::library_ui::PathPick) -> Vec<String> {
+    use photocraft_ui_egui::library_ui::PathPick;
+    let project = ("PhotoVision Project", &["pvproj"][..]);
+    let picked: Vec<std::path::PathBuf> = match what {
+        PathPick::NewProject => rfd::FileDialog::new().add_filter(project.0, project.1).set_file_name("Untitled.pvproj").save_file().into_iter().collect(),
+        PathPick::OpenProject => rfd::FileDialog::new().add_filter(project.0, project.1).pick_file().into_iter().collect(),
+        PathPick::ImportPhotos => rfd::FileDialog::new().add_filter("Images", OPEN_EXTS).pick_files().unwrap_or_default(),
+        PathPick::Folder => rfd::FileDialog::new().pick_folder().into_iter().collect(),
+    };
+    picked.into_iter().map(|p| p.to_string_lossy().into_owned()).collect()
 }
 
 /// Per-user settings directory: `PHOTOCRAFT_CONFIG_DIR`, else `<exe dir>/PhotoCraftData` in
@@ -129,10 +142,11 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
             if let Some(q) = settings.jpeg_quality {
                 opts.encode.jpeg_quality = q;
             }
+            opts.target = settings.color_target.clone();
             crate::crash_guard::guard("Export", || photocraft_io::export(doc, path, &opts).map(|r| (r.bytes, r.warnings)).map_err(|e| e.to_string()))
         })),
         pick_open: Some(Box::new(|| {
-            let path = rfd::FileDialog::new().add_filter("All Formats", OPEN_EXTS).add_filter("PhotoVision", &["pcraft"]).pick_file()?;
+            let path = rfd::FileDialog::new().add_filter("All Formats", OPEN_EXTS).add_filter("PhotoVision", &["pcraft", "pvision"]).pick_file()?;
             let bytes = std::fs::read(&path).ok()?;
             Some((path.to_string_lossy().to_string(), bytes))
         })),
@@ -148,6 +162,7 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
             Some(d.save_file()?.to_string_lossy().to_string())
         })),
         write: Some(Box::new(|path: &str, bytes: &[u8]| write_atomic(Path::new(path), bytes))),
+        pick_paths: Some(Box::new(pick_paths)),
         automation_read,
         automation_write,
         automation_command,

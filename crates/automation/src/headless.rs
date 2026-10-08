@@ -128,8 +128,8 @@ impl Headless {
             }
         };
         let is_native = format
-            .map(|f| f.trim_start_matches('.').eq_ignore_ascii_case("pcraft"))
-            .unwrap_or_else(|| target.extension().is_some_and(|e| e.eq_ignore_ascii_case("pcraft")));
+            .map(|f| photocraft_io::is_native_extension(f.trim_start_matches('.')))
+            .unwrap_or_else(|| target.extension().and_then(|e| e.to_str()).is_some_and(photocraft_io::is_native_extension));
         if is_native {
             self.session.set_active(i);
             if let Some(st) = self.session.active_mut() {

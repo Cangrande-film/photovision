@@ -157,6 +157,17 @@ impl History {
         self.redo.clear();
     }
 
+    /// Rewrite every past and redo state with `f` (`None` keeps a state as it is): for a change
+    /// that is shared with other documents and must not come back on undo, such as PhotoVision's
+    /// album look written into this document from another one. Labels and targets are kept.
+    pub fn rewrite_states(&mut self, mut f: impl FnMut(&Document) -> Option<Document>) {
+        for s in self.undo.iter_mut().chain(self.redo.iter_mut()) {
+            if let Some(d) = f(&s.doc) {
+                s.doc = Arc::new(d);
+            }
+        }
+    }
+
     /// Approximate unique pixel bytes held by history (tiles not shared with `current`).
     pub fn unique_bytes(&self, current: &Document) -> usize {
         let mut seen = HashSet::new();
@@ -291,6 +302,22 @@ mod tests {
         cur = h.undo(cur).unwrap().0;
         h.undo(cur).unwrap();
         assert_eq!(h.redo_labels().collect::<Vec<_>>(), ["A", "B"], "next redo first");
+    }
+
+    #[test]
+    fn rewrite_states_patches_past_and_redo_states() {
+        let mut h = History::default();
+        let mut cur = Arc::new(base());
+        let open = cur.clone();
+        edit(&mut h, &mut cur, "A", |d| d.name = "a".into());
+        edit(&mut h, &mut cur, "B", |d| d.name = "b".into());
+        cur = h.undo(cur).unwrap().0;
+        // Rewrite every state but the opened one.
+        h.rewrite_states(|d| (d.name != "h").then(|| Document { resolution_dpi: 300.0, ..d.clone() }));
+        assert!(Arc::ptr_eq(&h.state(0).unwrap(), &open), "None keeps a state as it is");
+        assert_eq!(h.entries(), ["Open", "A"], "labels are kept");
+        let (redone, _) = h.redo(cur).unwrap();
+        assert_eq!((redone.name.as_str(), redone.resolution_dpi), ("b", 300.0));
     }
 
     #[test]

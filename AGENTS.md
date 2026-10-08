@@ -25,6 +25,7 @@ crates/
   psd codecs                 L0 standalone format crates (no workspace deps; publishable)
   tablet                     L0 standalone pen tablet input (macOS AppKit, X11 XInput2); the one isolated unsafe crate
   doc                        L1 document model (layers, masks, adjustments, effects, smart objects: pure data)
+  project                    L1 projects, albums, photos, per-level colour pipeline settings (pure data, JSON)
   ops paint algo text vector L2 history, brush engine, imaging algorithms, type engine, paths/shapes
   compose gpu format         L3 CPU compositor (the oracle), wgpu compositor, .pcraft native format
   io plugins                 L4 document <-> PSD / flat formats; sandboxed WebAssembly plug-ins

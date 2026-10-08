@@ -44,6 +44,8 @@ pub const TABLE: &[(&str, Class)] = &[
     // Pen tablet input (the one isolated `unsafe` helper: AppKit interop on macOS).
     ("tablet", Class::Standalone),
     ("doc", Class::Layer(1)),
+    // Projects, albums and per-level colour settings (pure data).
+    ("project", Class::Layer(1)),
     ("ops", Class::Layer(2)),
     ("paint", Class::Layer(2)),
     ("algo", Class::Layer(2)),
