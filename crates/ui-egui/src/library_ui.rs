@@ -141,7 +141,7 @@ pub fn active(app: &PhotocraftApp) -> bool {
 }
 
 /// The project's `project.info`, re-read when stale.
-fn info(app: &mut PhotocraftApp, now: f64) -> Option<Value> {
+pub(crate) fn info(app: &mut PhotocraftApp, now: f64) -> Option<Value> {
     if app.session.project.is_none() {
         app.library.info = None;
         return None;
@@ -171,11 +171,11 @@ pub fn cached_info(app: &mut PhotocraftApp) -> Option<Value> {
     app.library.info.clone()
 }
 
-fn albums(info: &Value) -> &[Value] {
+pub(crate) fn albums(info: &Value) -> &[Value] {
     info["albums"].as_array().map_or(&[], Vec::as_slice)
 }
 
-fn album(info: &Value, id: u64) -> Option<&Value> {
+pub(crate) fn album(info: &Value, id: u64) -> Option<&Value> {
     albums(info).iter().find(|a| a["id"].as_u64() == Some(id))
 }
 
@@ -183,7 +183,7 @@ fn photo(info: &Value, id: u64) -> Option<&Value> {
     albums(info).iter().flat_map(|a| a["photos"].as_array().map_or(&[][..], Vec::as_slice)).find(|p| p["id"].as_u64() == Some(id))
 }
 
-fn str_of(v: &Value) -> &str {
+pub(crate) fn str_of(v: &Value) -> &str {
     v.as_str().unwrap_or("")
 }
 
@@ -323,9 +323,7 @@ pub fn view(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let now = ui.input(|i| i.time);
     let Some(info) = info(app, now) else { return };
     sanitize(app, &info);
-    app.library.inline_budget = INLINE_PER_FRAME;
-    #[cfg(not(target_arch = "wasm32"))]
-    receive_thumbs(app, ui.ctx());
+    begin_thumbs(app, ui.ctx());
     let t = Tokens::get(ui.ctx());
     egui::Panel::left("library-tree")
         .exact_size(230.0)
@@ -447,20 +445,7 @@ fn tile(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &Value) -> egui::Response
     if selected {
         painter.rect_stroke(img_rect.shrink(1.0), t.radius_sm, Stroke::new(2.0, t.accent), StrokeKind::Inside);
     }
-    let mut badge_x = img_rect.left() + 6.0;
-    let mut badge = |text: &str, fill: Color32| {
-        let g = painter.layout_no_wrap(text.to_string(), egui::FontId::proportional(10.5), Color32::WHITE);
-        let r = Rect::from_min_size(egui::pos2(badge_x, img_rect.top() + 6.0), g.size() + vec2(8.0, 4.0));
-        painter.rect_filled(r, t.radius_sm, fill);
-        painter.galley(r.min + vec2(4.0, 2.0), g, Color32::WHITE);
-        badge_x = r.right() + 4.0;
-    };
-    if p["hasSidecar"] == json!(true) {
-        badge(tl!("Edited"), t.accent);
-    }
-    if !exists {
-        badge(tl!("Missing"), t.danger);
-    }
+    paint_badges(&painter, &t, img_rect.left_top() + vec2(6.0, 6.0), p);
     let name = str_of(&p["name"]);
     let mut job = egui::text::LayoutJob::simple_singleline(name.to_string(), egui::FontId::proportional(12.0), if selected { t.text } else { t.text_dim });
     job.wrap = egui::text::TextWrapping::truncate_at_width(TILE - 4.0);
@@ -705,9 +690,43 @@ pub fn rebuild(app: &mut PhotocraftApp, photos: &[u64]) {
     }
 }
 
+/// A small filled label (a tile's "Edited" / "Missing" badge) at `at`; returns its right edge.
+pub(crate) fn paint_badge(painter: &egui::Painter, t: &Tokens, at: egui::Pos2, text: &str, fill: Color32) -> f32 {
+    let g = painter.layout_no_wrap(text.to_string(), egui::FontId::proportional(10.5), Color32::WHITE);
+    let r = Rect::from_min_size(at, g.size() + vec2(8.0, 4.0));
+    painter.rect_filled(r, t.radius_sm, fill);
+    painter.galley(r.min + vec2(4.0, 2.0), g, Color32::WHITE);
+    r.right()
+}
+
+/// A photo's badges from its `project.info` entry, left to right from `at`: Edited (a sidecar
+/// exists), Missing (the original is gone). Returns the x after the last one.
+pub(crate) fn paint_badges(painter: &egui::Painter, t: &Tokens, at: egui::Pos2, p: &Value) -> f32 {
+    let mut x = at.x;
+    if p["hasSidecar"] == json!(true) {
+        x = paint_badge(painter, t, egui::pos2(x, at.y), tl!("Edited"), t.accent) + 4.0;
+    }
+    if p["exists"] != json!(true) {
+        x = paint_badge(painter, t, egui::pos2(x, at.y), tl!("Missing"), t.danger) + 4.0;
+    }
+    x
+}
+
 // ------------------------------------------------------------------ thumbnails
 
-fn thumb_texture(app: &mut PhotocraftApp, ctx: &egui::Context, p: &Value) -> Option<egui::TextureHandle> {
+/// Once per frame before tiles ask for thumbnails (the Library grid or the Clips bar): resets
+/// the inline decode budget and takes the worker's finished thumbnails.
+pub(crate) fn begin_thumbs(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    app.library.inline_budget = INLINE_PER_FRAME;
+    #[cfg(not(target_arch = "wasm32"))]
+    receive_thumbs(app, ctx);
+    #[cfg(target_arch = "wasm32")]
+    let _ = ctx;
+}
+
+/// The photo's thumbnail texture (`p` is its `project.info` entry), or `None` while it is being
+/// made (on the worker thread, or a few per frame inline) or when it can't be.
+pub(crate) fn thumb_texture(app: &mut PhotocraftApp, ctx: &egui::Context, p: &Value) -> Option<egui::TextureHandle> {
     let id = p["id"].as_u64()?;
     match app.library.thumbs.get(&id) {
         Some(Thumb::Requested(path)) => return app.library.textures.get(path).cloned(),

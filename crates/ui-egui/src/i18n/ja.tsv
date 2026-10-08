@@ -2075,3 +2075,11 @@
 @plural	{n} album|{n} albums	{n} 個のアルバム
 @plural	{n} file|{n} files	{n} 個のファイル
 @plural	Imported {n} photo|Imported {n} photos	{n} 枚の写真を読み込みました
+# PhotoVision Clips bar (the album filmstrip in the Edit module)
+	Clips	クリップ
+	Previous Photo	前の写真
+	Next Photo	次の写真
+	Hide Clips	クリップを隠す
+	Expand Clips	クリップを展開
+	Collapse Clips	クリップを折りたたむ
+	Reveal in Library	ライブラリで表示

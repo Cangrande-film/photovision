@@ -2352,3 +2352,11 @@
 @plural	{n} album|{n} albums	{n} альбом|{n} альбома|{n} альбомов
 @plural	{n} file|{n} files	{n} файл|{n} файла|{n} файлов
 @plural	Imported {n} photo|Imported {n} photos	Импортирована {n} фотография|Импортированы {n} фотографии|Импортировано {n} фотографий
+# PhotoVision Clips bar (the album filmstrip in the Edit module)
+	Clips	Клипы
+	Previous Photo	Предыдущее фото
+	Next Photo	Следующее фото
+	Hide Clips	Скрыть клипы
+	Expand Clips	Развернуть клипы
+	Collapse Clips	Свернуть клипы
+	Reveal in Library	Показать в библиотеке

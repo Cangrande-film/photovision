@@ -2085,3 +2085,11 @@
 @plural	{n} album|{n} albums	{n} album|{n} alba|{n} alb
 @plural	{n} file|{n} files	{n} soubor|{n} soubory|{n} souborů
 @plural	Imported {n} photo|Imported {n} photos	Importována {n} fotografie|Importovány {n} fotografie|Importováno {n} fotografií
+# PhotoVision Clips bar (the album filmstrip in the Edit module)
+	Clips	Klipy
+	Previous Photo	Předchozí fotografie
+	Next Photo	Další fotografie
+	Hide Clips	Skrýt klipy
+	Expand Clips	Rozbalit klipy
+	Collapse Clips	Sbalit klipy
+	Reveal in Library	Zobrazit v knihovně

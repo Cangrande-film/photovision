@@ -33,6 +33,7 @@ pub mod channel_view;
 pub mod channels_panel;
 pub mod chrome_ui;
 pub mod cjk_fonts;
+pub mod clips_ui;
 pub mod color_picker_ui;
 pub mod color_range_ui;
 pub mod comps_ui;
@@ -948,6 +949,11 @@ impl eframe::App for PhotocraftApp {
         }
         if chrome && !library {
             panels::right_dock(self, ui);
+        }
+        // Edit module with a project: the current album's filmstrip under the canvas, above the
+        // status bar (between the Tools rail and the dock, which keep the full height they need).
+        if chrome && !library {
+            clips_ui::bar(self, ui);
         }
         let t = theme::Tokens::get(&ctx);
         let backdrop = if chrome { prefs_ui::pasteboard_color(self).unwrap_or(t.canvas) } else { egui::Color32::BLACK };

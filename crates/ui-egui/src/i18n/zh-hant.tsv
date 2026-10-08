@@ -2067,3 +2067,11 @@
 @plural	{n} album|{n} albums	{n} 個相簿
 @plural	{n} file|{n} files	{n} 個檔案
 @plural	Imported {n} photo|Imported {n} photos	已匯入 {n} 張相片
+# PhotoVision Clips bar (the album filmstrip in the Edit module)
+	Clips	片段
+	Previous Photo	上一張相片
+	Next Photo	下一張相片
+	Hide Clips	隱藏片段
+	Expand Clips	展開片段
+	Collapse Clips	收合片段
+	Reveal in Library	在圖庫中顯示

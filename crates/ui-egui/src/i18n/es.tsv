@@ -2159,3 +2159,11 @@
 @plural	{n} album|{n} albums	{n} álbum|{n} álbumes
 @plural	{n} file|{n} files	{n} archivo|{n} archivos
 @plural	Imported {n} photo|Imported {n} photos	Se importó {n} foto|Se importaron {n} fotos
+# PhotoVision Clips bar (the album filmstrip in the Edit module)
+	Clips	Clips
+	Previous Photo	Foto anterior
+	Next Photo	Foto siguiente
+	Hide Clips	Ocultar clips
+	Expand Clips	Expandir clips
+	Collapse Clips	Contraer clips
+	Reveal in Library	Mostrar en la biblioteca

@@ -1969,3 +1969,11 @@
 @plural	{n} album|{n} albums	{n} 个相册
 @plural	{n} file|{n} files	{n} 个文件
 @plural	Imported {n} photo|Imported {n} photos	已导入 {n} 张照片
+# PhotoVision Clips bar (the album filmstrip in the Edit module)
+	Clips	片段
+	Previous Photo	上一张照片
+	Next Photo	下一张照片
+	Hide Clips	隐藏片段
+	Expand Clips	展开片段
+	Collapse Clips	折叠片段
+	Reveal in Library	在图库中显示

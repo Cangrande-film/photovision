@@ -46,6 +46,10 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("window.toggle.navigator", "Navigator", &["Window"], None),
     ("window.toggle.toolbar", "Tools", &["Window"], None),
     ("window.toggle.options", "Options", &["Window"], None),
+    // PhotoVision's Clips bar (`clips_ui`): the current album's filmstrip in the Edit module.
+    ("window.toggle.clips", "Clips", &["Window"], None),
+    ("view.clips.prev", "Previous Photo", &["View"], Some("Cmd+Left")),
+    ("view.clips.next", "Next Photo", &["View"], Some("Cmd+Right")),
     ("window.theme.toggle", "Next Theme", &["Window"], None),
     ("window.theme.pro", "Pro Theme", &["Window", "Theme"], None),
     ("window.theme.proMedium", "Pro Medium Gray Theme", &["Window", "Theme"], None),
@@ -176,6 +180,10 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
     }
     // Project menu: pickers and dialogs in front of the project/album commands.
     if let Some(r) = crate::library_ui::menu(app, id, &params) {
+        return r;
+    }
+    // Clips bar: next/previous photo of the album, Window › Clips.
+    if let Some(r) = crate::clips_ui::menu(app, id) {
         return r;
     }
     // Save for Web, Print and the other File-menu dialogs added with slices.
@@ -474,6 +482,9 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
     if let Some(e) = crate::library_ui::is_enabled(app, id) {
         return e;
     }
+    if let Some(e) = crate::clips_ui::is_enabled(app, id) {
+        return e;
+    }
     match id {
         "file.open" | "file.exit" | "file.clearRecent" | "help.about" | "help.systemInfo" | "edit.search" => true,
         i if i.starts_with("file.openRecent.") => true,
@@ -522,6 +533,9 @@ fn checked(app: &PhotocraftApp, id: &str) -> Option<bool> {
         return Some(c);
     }
     if let Some(c) = crate::timeline_ui::checked(app, id) {
+        return Some(c);
+    }
+    if let Some(c) = crate::clips_ui::checked(app, id) {
         return Some(c);
     }
     if let Some(c) = crate::type_panels_ui::checked(app, id) {
